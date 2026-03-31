@@ -1,0 +1,22 @@
+import { getLog, saveLog } from './shared/log.js'
+
+export default async (req) => {
+  if (req.method === 'GET') {
+    const content = await getLog()
+    return new Response(JSON.stringify({ content }), {
+      headers: { 'Content-Type': 'application/json' }
+    })
+  }
+
+  if (req.method === 'POST') {
+    const { content } = await req.json()
+    await saveLog(content)
+    return new Response(JSON.stringify({ ok: true }), {
+      headers: { 'Content-Type': 'application/json' }
+    })
+  }
+
+  return new Response('Method not allowed', { status: 405 })
+}
+
+export const config = { path: '/api/training-log' }

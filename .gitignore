@@ -1,0 +1,30 @@
+# Personal activity data — never commit
+activities/*.csv
+activities/*.fit
+
+# Personal training log — never commit (use training_log.template.md instead)
+training_log.md
+
+# Generated workout files
+workouts/*.json
+workouts/*.fit
+
+# macOS metadata
+.DS_Store
+**/.DS_Store
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# API keys and environment files — never commit
+.env
+.env.local
+.env.*
+
+# Credentials and tokens live in ~ — documenting here for clarity
+# ~/.garmin_credentials
+# ~/.garmin_tokens/
