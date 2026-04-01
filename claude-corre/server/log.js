@@ -1,8 +1,3 @@
-import { getStore } from '@netlify/blobs'
-import fs from 'fs'
-import path from 'path'
-
-// Blank template for new users — no personal data
 export const NEW_USER_LOG = `# Running Training Log
 
 **Goal:** Not yet configured — chat with your coach to set up your profile
@@ -59,36 +54,3 @@ export const NEW_USER_LOG = `# Running Training Log
 
 *No activities yet. Start by telling your coach about your running background.*
 `
-
-// Local dev: look for training_log.md in the project root
-const LOCAL_LOG_PATH = path.join(process.cwd(), '..', 'training_log.md')
-
-export async function getLog(userId) {
-  if (process.env.NETLIFY) {
-    try {
-      const store = getStore('training-log')
-      const content = await store.get(userId)
-      if (content) return content
-    } catch {}
-    return NEW_USER_LOG
-  }
-  // Local dev: use shared local file (single-user dev mode)
-  try {
-    return fs.readFileSync(LOCAL_LOG_PATH, 'utf-8')
-  } catch {
-    return NEW_USER_LOG
-  }
-}
-
-export async function saveLog(userId, content) {
-  if (process.env.NETLIFY) {
-    const store = getStore('training-log')
-    await store.set(userId, content)
-  } else {
-    fs.writeFileSync(LOCAL_LOG_PATH, content, 'utf-8')
-  }
-}
-
-export function isNewUser(logContent) {
-  return logContent.includes('No activities yet') && logContent.includes('Not yet configured')
-}

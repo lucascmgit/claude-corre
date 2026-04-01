@@ -3,8 +3,7 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'crypt
 const ALGORITHM = 'aes-256-gcm'
 
 function getKey() {
-  const secret = process.env.ENCRYPTION_SECRET || 'dev-insecure-key-do-not-use-in-prod'
-  // Derive a consistent 32-byte key from whatever string is provided
+  const secret = process.env.ENCRYPTION_SECRET || 'dev-insecure-key-change-in-production'
   return createHash('sha256').update(secret).digest()
 }
 
@@ -14,7 +13,6 @@ export function encrypt(plaintext) {
   const cipher = createCipheriv(ALGORITHM, key, iv)
   const encrypted = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()])
   const tag = cipher.getAuthTag()
-  // Pack: iv(12) + tag(16) + encrypted
   return Buffer.concat([iv, tag, encrypted]).toString('base64url')
 }
 

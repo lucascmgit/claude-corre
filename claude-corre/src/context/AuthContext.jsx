@@ -1,7 +1,6 @@
 import { createContext, useContext, useState, useEffect } from 'react'
 
 const AuthContext = createContext(null)
-
 const SESSION_KEY = 'cc_session'
 
 function parseJwtPayload(token) {
@@ -12,62 +11,21 @@ function parseJwtPayload(token) {
   }
 }
 
-async function refreshSession(refreshToken) {
-  const res = await fetch('/.netlify/identity/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: refreshToken })
-  })
-  if (!res.ok) throw new Error('Session expired')
-  const data = await res.json()
-  const payload = parseJwtPayload(data.access_token)
-  return {
-    token: data.access_token,
-    refreshToken: data.refresh_token,
-    expiresAt: Date.now() + (data.expires_in || 3600) * 1000,
-    email: payload?.email || '',
-    id: payload?.sub || '',
-  }
-}
-
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [confirmed, setConfirmed] = useState(false)
 
   useEffect(() => {
-    // Handle email confirmation token in URL hash
-    const hash = window.location.hash
-    const params = new URLSearchParams(hash.replace(/^#/, ''))
-    const confirmToken = params.get('confirmation_token')
-    if (confirmToken) {
-      fetch('/.netlify/identity/verify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: confirmToken, type: 'signup' })
-      }).then(() => {
-        window.history.replaceState(null, '', window.location.pathname)
-        setConfirmed(true)
-      }).catch(() => {})
-    }
-
-    // Restore session from localStorage
     const stored = localStorage.getItem(SESSION_KEY)
     if (stored) {
       try {
         const session = JSON.parse(stored)
-        if (session.expiresAt > Date.now() + 60000) {
+        const payload = parseJwtPayload(session.token)
+        // Check token not expired (exp is in seconds)
+        if (payload?.exp && payload.exp * 1000 > Date.now()) {
           setUser(session)
-          setLoading(false)
-        } else if (session.refreshToken) {
-          refreshSession(session.refreshToken)
-            .then(fresh => {
-              localStorage.setItem(SESSION_KEY, JSON.stringify(fresh))
-              setUser(fresh)
-            })
-            .catch(() => localStorage.removeItem(SESSION_KEY))
-            .finally(() => setLoading(false))
-          return
+        } else {
+          localStorage.removeItem(SESSION_KEY)
         }
       } catch {
         localStorage.removeItem(SESSION_KEY)
@@ -77,40 +35,38 @@ export function AuthProvider({ children }) {
   }, [])
 
   async function login(email, password) {
-    const res = await fetch('/.netlify/identity/token', {
+    const res = await fetch('/api/auth/login', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ grant_type: 'password', username: email, password })
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
     })
     if (!res.ok) {
       const err = await res.json().catch(() => ({}))
-      throw new Error(err.error_description || err.msg || 'Login failed')
+      throw new Error(err.error || 'Login failed')
     }
     const data = await res.json()
-    const payload = parseJwtPayload(data.access_token)
-    const session = {
-      token: data.access_token,
-      refreshToken: data.refresh_token,
-      expiresAt: Date.now() + (data.expires_in || 3600) * 1000,
-      email: payload?.email || email,
-      id: payload?.sub || '',
-    }
+    const session = { token: data.token, email: data.email, id: data.id }
     localStorage.setItem(SESSION_KEY, JSON.stringify(session))
     setUser(session)
     return session
   }
 
   async function signup(email, password) {
-    const res = await fetch('/.netlify/identity/signup', {
+    const res = await fetch('/api/auth/signup', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password })
+      body: JSON.stringify({ email, password }),
     })
     if (!res.ok) {
       const err = await res.json().catch(() => ({}))
-      throw new Error(err.msg || err.error_description || 'Signup failed')
+      throw new Error(err.error || 'Signup failed')
     }
-    return await res.json()
+    // Auto-login after signup (no email confirmation needed)
+    const data = await res.json()
+    const session = { token: data.token, email: data.email, id: data.id }
+    localStorage.setItem(SESSION_KEY, JSON.stringify(session))
+    setUser(session)
+    return session
   }
 
   function logout() {
@@ -123,7 +79,7 @@ export function AuthProvider({ children }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, loading, confirmed, setConfirmed, login, signup, logout, getAuthHeader }}>
+    <AuthContext.Provider value={{ user, loading, login, signup, logout, getAuthHeader }}>
       {children}
     </AuthContext.Provider>
   )
