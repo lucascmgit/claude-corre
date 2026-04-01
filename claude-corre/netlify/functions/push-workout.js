@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk'
+import { verifyUser, unauthorizedResponse } from './shared/auth.js'
+import { getUserApiKey, getUserGarminTokens } from './settings.js'
 
-// Garmin workout JSON structure for a distance-based easy run with HR target
 function buildEasyRunWorkout(name, distanceMeters, hrMin, hrMax) {
   const date = new Date().toISOString().split('T')[0]
   return {
@@ -44,22 +45,36 @@ function buildEasyRunWorkout(name, distanceMeters, hrMin, hrMax) {
 export default async (req) => {
   if (req.method !== 'POST') return new Response('Method not allowed', { status: 405 })
 
-  if (!process.env.ANTHROPIC_API_KEY) {
-    return new Response(JSON.stringify({ error: 'ANTHROPIC_API_KEY not configured.' }), {
+  let user
+  try {
+    user = await verifyUser(req)
+  } catch (e) {
+    return unauthorizedResponse(e.message)
+  }
+
+  const apiKey = await getUserApiKey(user.userId)
+  if (!apiKey) {
+    return new Response(JSON.stringify({ error: 'No Anthropic API key configured. Go to [SETTINGS].' }), {
+      status: 503, headers: { 'Content-Type': 'application/json' }
+    })
+  }
+
+  const garminTokens = await getUserGarminTokens(user.userId)
+  if (!garminTokens.oauth2?.access_token) {
+    return new Response(JSON.stringify({ error: 'Garmin tokens not configured. Go to [SETTINGS] to add your Garmin tokens.' }), {
       status: 503, headers: { 'Content-Type': 'application/json' }
     })
   }
 
   const { prescription } = await req.json()
+  const client = new Anthropic({ apiKey })
 
-  // Use Claude to extract workout parameters from the prescription text
-  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
   const extract = await client.messages.create({
     model: 'claude-haiku-4-5',
     max_tokens: 200,
     messages: [{
       role: 'user',
-      content: `Extract workout parameters from this prescription. Respond with JSON only, no explanation:
+      content: `Extract workout parameters from this prescription. Respond with JSON only:
 {"distanceMeters": <number>, "hrMin": <number>, "hrMax": <number>, "name": "<short name>"}
 
 Prescription:
@@ -77,20 +92,10 @@ ${prescription}`
 
   const workout = buildEasyRunWorkout(params.name, params.distanceMeters, params.hrMin, params.hrMax)
 
-  // Upload to Garmin Connect using stored tokens
-  const oauth1 = JSON.parse(process.env.GARMIN_OAUTH1_TOKEN || '{}')
-  const oauth2 = JSON.parse(process.env.GARMIN_OAUTH2_TOKEN || '{}')
-
-  if (!oauth2.access_token) {
-    return new Response(JSON.stringify({
-      error: 'Garmin tokens not configured. Set GARMIN_OAUTH1_TOKEN and GARMIN_OAUTH2_TOKEN env vars.'
-    }), { status: 503, headers: { 'Content-Type': 'application/json' } })
-  }
-
   const garminRes = await fetch('https://connectapi.garmin.com/workout-service/workout', {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${oauth2.access_token}`,
+      'Authorization': `Bearer ${garminTokens.oauth2.access_token}`,
       'Content-Type': 'application/json',
       'User-Agent': 'GCM-iOS-5.7.2.1',
     },

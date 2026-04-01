@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { useAuth } from '../context/AuthContext.jsx'
 
 const QUICK_PROMPTS = [
   'Prescribe my next run',
@@ -27,6 +28,7 @@ function ThinkingIndicator() {
 }
 
 export default function Coach() {
+  const { getAuthHeader } = useAuth()
   const [messages, setMessages] = useState([
     {
       role: 'assistant',
@@ -59,7 +61,7 @@ export default function Coach() {
     try {
       const res = await fetch('/api/ask-coach', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
         body: JSON.stringify({ question: q, history: messages.slice(-6) })
       })
       if (!res.ok) throw new Error(`Server error ${res.status}`)

@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { useAuth } from '../context/AuthContext.jsx'
 
 export default function TrainingLog() {
+  const { getAuthHeader } = useAuth()
   const [content, setContent] = useState('')
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
@@ -10,7 +12,7 @@ export default function TrainingLog() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    fetch('/api/training-log')
+    fetch('/api/training-log', { headers: getAuthHeader() })
       .then(r => r.json())
       .then(d => { setContent(d.content || ''); setLoading(false) })
       .catch(() => setLoading(false))
@@ -21,7 +23,7 @@ export default function TrainingLog() {
     try {
       const res = await fetch('/api/training-log', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
         body: JSON.stringify({ content: draft })
       })
       if (!res.ok) throw new Error('Save failed')

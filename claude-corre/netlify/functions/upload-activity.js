@@ -1,5 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { getLog, saveLog } from './shared/log.js'
+import { verifyUser, unauthorizedResponse } from './shared/auth.js'
+import { getUserApiKey } from './settings.js'
 
 const SYSTEM_PROMPT = `You are a personal running coach. You are scientific, direct, and never sycophantic.
 
@@ -26,7 +28,7 @@ When given a Garmin CSV activity file, you must:
    - Format it clearly under a "## NEXT PRESCRIBED SESSION" heading
 
 3. UPDATE the training log:
-   - Provide an updated version of the training log in a markdown code block
+   - Provide the FULL updated training log in a markdown code block
    - Add this run to the Activity Log table
    - Update Coach Notes
    - Rewrite Prescribed Sessions with the new prescription
@@ -35,13 +37,21 @@ Key training principles:
 - Connective tissue adapts 3-5x slower than cardio (Magnusson et al., 2010)
 - 80/20 rule: 80% Z2 (Seiler, 2010)
 - 10% weekly volume increase max (Buist et al., 2010)
-- Rio heat: adjust HR targets down 5-8 bpm in 30C+`
+- Heat: adjust HR targets down 5-8 bpm in 30C+`
 
 export default async (req) => {
   if (req.method !== 'POST') return new Response('Method not allowed', { status: 405 })
 
-  if (!process.env.ANTHROPIC_API_KEY) {
-    return new Response(JSON.stringify({ error: 'ANTHROPIC_API_KEY not configured.' }), {
+  let user
+  try {
+    user = await verifyUser(req)
+  } catch (e) {
+    return unauthorizedResponse(e.message)
+  }
+
+  const apiKey = await getUserApiKey(user.userId)
+  if (!apiKey) {
+    return new Response(JSON.stringify({ error: 'No Anthropic API key configured. Go to [SETTINGS].' }), {
       status: 503, headers: { 'Content-Type': 'application/json' }
     })
   }
@@ -49,8 +59,8 @@ export default async (req) => {
   const { csv, filename } = await req.json()
   if (!csv) return new Response(JSON.stringify({ error: 'No CSV data' }), { status: 400 })
 
-  const log = await getLog()
-  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+  const log = await getLog(user.userId)
+  const client = new Anthropic({ apiKey })
 
   try {
     const response = await client.messages.create({
@@ -65,17 +75,14 @@ export default async (req) => {
 
     const text = response.content[0]?.text || ''
 
-    // Extract prescription section
     const prescMatch = text.match(/## NEXT PRESCRIBED SESSION([\s\S]*?)(?=##|$)/)
     const prescription = prescMatch ? prescMatch[0].trim() : ''
 
-    // Extract updated training log from code block and save
     const logMatch = text.match(/```(?:markdown)?\n([\s\S]*?)```/)
     if (logMatch) {
-      await saveLog(logMatch[1].trim())
+      await saveLog(user.userId, logMatch[1].trim())
     }
 
-    // Return analysis without the code block
     const analysis = text.replace(/```(?:markdown)?[\s\S]*?```/g, '').trim()
 
     return new Response(JSON.stringify({ analysis, prescription }), {

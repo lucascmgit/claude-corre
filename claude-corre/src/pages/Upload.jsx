@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { useAuth } from '../context/AuthContext.jsx'
 
 const SPINNER_FRAMES = ['[/]', '[-]', '[\\]', '[|]']
 
@@ -14,6 +15,7 @@ function Spinner() {
 }
 
 export default function Upload() {
+  const { getAuthHeader } = useAuth()
   const [dragging, setDragging] = useState(false)
   const [file, setFile] = useState(null)
   const [status, setStatus] = useState('idle') // idle | uploading | done | error
@@ -42,7 +44,7 @@ export default function Upload() {
     try {
       const res = await fetch('/api/upload-activity', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
         body: JSON.stringify({ csv: text, filename: file.name })
       })
       if (!res.ok) throw new Error(`Server error: ${res.status}`)
@@ -62,7 +64,7 @@ export default function Upload() {
     try {
       const res = await fetch('/api/push-workout', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
         body: JSON.stringify({ prescription })
       })
       const data = await res.json()

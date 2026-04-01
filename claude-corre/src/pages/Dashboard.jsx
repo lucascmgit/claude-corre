@@ -1,4 +1,5 @@
 import { useEffect, useState, Fragment } from 'react'
+import { useAuth } from '../context/AuthContext.jsx'
 
 function AsciiBar({ value, max, width = 20, char = '█', empty = '░' }) {
   const filled = Math.round((value / max) * width)
@@ -197,12 +198,13 @@ const RECENT_RUNS = [
 ]
 
 export default function Dashboard() {
+  const { getAuthHeader } = useAuth()
   const [log, setLog] = useState(null)
   const [loading, setLoading] = useState(true)
   const [expandedRun, setExpandedRun] = useState(null)
 
   useEffect(() => {
-    fetch('/api/training-log')
+    fetch('/api/training-log', { headers: getAuthHeader() })
       .then(r => r.json())
       .then(d => { setLog(d); setLoading(false) })
       .catch(() => setLoading(false))
