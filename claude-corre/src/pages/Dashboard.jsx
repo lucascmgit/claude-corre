@@ -79,6 +79,8 @@ export default function Dashboard() {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [expandedActivity, setExpandedActivity] = useState(null)
+  const [garminStatus, setGarminStatus] = useState(null) // null | 'pushing' | 'ok' | 'error'
+  const [garminMsg, setGarminMsg] = useState('')
 
   function load() {
     setLoading(true)
@@ -94,10 +96,29 @@ export default function Dashboard() {
     return () => window.removeEventListener('log-updated', load)
   }, [])
 
+  async function pushToGarmin() {
+    setGarminStatus('pushing')
+    setGarminMsg('')
+    try {
+      const res = await fetch('/api/push-workout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+        body: JSON.stringify({ prescription: data?.prescription }),
+      })
+      const d = await res.json()
+      if (!res.ok) throw new Error(d.error || `HTTP ${res.status}`)
+      setGarminStatus('ok')
+      setGarminMsg(`Workout pushed. ID: ${d.workoutId}`)
+    } catch (e) {
+      setGarminStatus('error')
+      setGarminMsg(e.message)
+    }
+  }
+
   if (loading) return <div className="dim" style={{ padding: '24px' }}>LOADING...</div>
   if (!data) return <div className="red" style={{ padding: '24px' }}>ERROR: Could not load dashboard.</div>
 
-  const { isNewUser, profile, goal, phase, currentWeek, zones, activities, prescription, coachNotes } = data
+  const { isNewUser, profile, goal, phase, currentWeek, zones, activities, prescription, coachNotes, hasGarminTokens } = data
 
   if (isNewUser) {
     return (
@@ -155,6 +176,24 @@ export default function Dashboard() {
           </div>
           <div className="term-box-body coach-output" style={{ fontSize: '13px' }}>
             <ReactMarkdown remarkPlugins={[remarkGfm]}>{prescription}</ReactMarkdown>
+            {hasGarminTokens && (
+              <div style={{ marginTop: '12px', display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                <button
+                  className="term-btn amber"
+                  onClick={pushToGarmin}
+                  disabled={garminStatus === 'pushing'}
+                >
+                  {garminStatus === 'pushing' ? '[PUSHING...]' : '[PUSH TO GARMIN ↑]'}
+                </button>
+                {garminStatus === 'ok' && <span className="status-ok" style={{ fontSize: '13px' }}>✓ {garminMsg}</span>}
+                {garminStatus === 'error' && <span className="red" style={{ fontSize: '13px' }}>✗ {garminMsg}</span>}
+              </div>
+            )}
+            {!hasGarminTokens && (
+              <div style={{ marginTop: '10px', fontSize: '12px', color: '#444' }}>
+                Add Garmin tokens in <span className="amber">[SETTINGS]</span> to push workouts to your watch.
+              </div>
+            )}
           </div>
         </div>
       )}

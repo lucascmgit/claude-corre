@@ -254,7 +254,10 @@ function parseLogToDashboard(log) {
 app.get('/api/dashboard', requireAuth, (req, res) => {
   const row = getDb().prepare('SELECT content FROM training_logs WHERE user_id = ?').get(req.user.sub)
   const log = row?.content || NEW_USER_LOG
-  res.json(parseLogToDashboard(log))
+  const parsed = parseLogToDashboard(log)
+  const garmin = getUserGarminTokens(req.user.sub)
+  parsed.hasGarminTokens = !!garmin.oauth2?.access_token
+  res.json(parsed)
 })
 
 // ── Training log ───────────────────────────────────────────────────────────────
@@ -333,21 +336,25 @@ app.post('/api/ask-coach', requireAuth, async (req, res) => {
   try {
     const response = await client.messages.create({
       model: 'claude-sonnet-4-5',
-      max_tokens: 2048,
+      max_tokens: 8192,
       system: COACH_SYSTEM_PROMPT + '\n\n---\nTRAINING LOG:\n' + log,
       messages: [...safeHistory, { role: 'user', content: question }],
     })
 
     const text = response.content[0]?.text || ''
-    // Tolerant extraction: optional lang tag, optional whitespace after backticks
+    // Full match: opening + content + closing fence
     const logMatch = text.match(/```(?:markdown)?\s*\r?\n([\s\S]*?)```/)
-    if (logMatch) {
-      getDb().prepare('INSERT OR REPLACE INTO training_logs (user_id, content, updated_at) VALUES (?, ?, ?)').run(req.user.sub, logMatch[1].trim(), Date.now())
+    // Fallback: if truncated (no closing fence), grab everything after the opening fence
+    const truncatedMatch = !logMatch && text.match(/```(?:markdown)?\s*\r?\n([\s\S]+)$/)
+    const extracted = logMatch?.[1] || truncatedMatch?.[1]
+
+    if (extracted) {
+      getDb().prepare('INSERT OR REPLACE INTO training_logs (user_id, content, updated_at) VALUES (?, ?, ?)').run(req.user.sub, extracted.trim(), Date.now())
     }
 
     res.json({
-      answer: text.replace(/```(?:markdown)?\s*\r?\n[\s\S]*?```/g, '').trim(),
-      logUpdated: !!logMatch,
+      answer: text.replace(/```(?:markdown)?\s*\r?\n[\s\S]*?```/g, '').replace(/```(?:markdown)?\s*\r?\n[\s\S]+$/, '').trim(),
+      logUpdated: !!(logMatch || truncatedMatch),
     })
   } catch (e) {
     res.status(500).json({ answer: `ERROR: ${e.message}` })
@@ -370,7 +377,7 @@ app.post('/api/upload-activity', requireAuth, async (req, res) => {
   try {
     const response = await client.messages.create({
       model: 'claude-sonnet-4-5',
-      max_tokens: 2048,
+      max_tokens: 4096,
       system: UPLOAD_SYSTEM_PROMPT + '\n\n---\nCURRENT TRAINING LOG:\n' + log,
       messages: [{ role: 'user', content: `Analyze this Garmin CSV activity (filename: ${filename}):\n\n\`\`\`csv\n${csv.slice(0, 8000)}\n\`\`\`` }],
     })
@@ -378,12 +385,14 @@ app.post('/api/upload-activity', requireAuth, async (req, res) => {
     const text = response.content[0]?.text || ''
     const prescMatch = text.match(/## NEXT PRESCRIBED SESSION([\s\S]*?)(?=##|$)/)
     const logMatch = text.match(/```(?:markdown)?\s*\r?\n([\s\S]*?)```/)
-    if (logMatch) {
-      getDb().prepare('INSERT OR REPLACE INTO training_logs (user_id, content, updated_at) VALUES (?, ?, ?)').run(req.user.sub, logMatch[1].trim(), Date.now())
+    const truncatedMatch = !logMatch && text.match(/```(?:markdown)?\s*\r?\n([\s\S]+)$/)
+    const extracted = logMatch?.[1] || truncatedMatch?.[1]
+    if (extracted) {
+      getDb().prepare('INSERT OR REPLACE INTO training_logs (user_id, content, updated_at) VALUES (?, ?, ?)').run(req.user.sub, extracted.trim(), Date.now())
     }
 
     res.json({
-      analysis: text.replace(/```(?:markdown)?\s*\r?\n[\s\S]*?```/g, '').trim(),
+      analysis: text.replace(/```(?:markdown)?\s*\r?\n[\s\S]*?```/g, '').replace(/```(?:markdown)?\s*\r?\n[\s\S]+$/, '').trim(),
       prescription: prescMatch ? prescMatch[0].trim() : '',
     })
   } catch (e) {
