@@ -395,7 +395,7 @@ app.post('/api/push-workout', requireAuth, async (req, res) => {
 
 if (IS_PROD) {
   app.use(express.static(join(__dirname, 'dist')))
-  app.get('*', (req, res) => res.sendFile(join(__dirname, 'dist', 'index.html')))
+  app.get('/{*path}', (req, res) => res.sendFile(join(__dirname, 'dist', 'index.html')))
 }
 
 // ── Start ──────────────────────────────────────────────────────────────────────
