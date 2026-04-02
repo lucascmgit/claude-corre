@@ -333,31 +333,42 @@ app.post('/api/ask-coach', requireAuth, async (req, res) => {
     }
   }
 
+  // Stream via SSE so Railway's 60s proxy timeout doesn't kill long responses
+  res.setHeader('Content-Type', 'text/event-stream')
+  res.setHeader('Cache-Control', 'no-cache')
+  res.setHeader('X-Accel-Buffering', 'no')
+
+  function send(obj) { res.write(`data: ${JSON.stringify(obj)}\n\n`) }
+
   try {
-    const response = await client.messages.create({
+    const stream = client.messages.stream({
       model: 'claude-sonnet-4-5',
       max_tokens: 8192,
       system: COACH_SYSTEM_PROMPT + '\n\n---\nTRAINING LOG:\n' + log,
       messages: [...safeHistory, { role: 'user', content: question }],
     })
 
-    const text = response.content[0]?.text || ''
-    // Full match: opening + content + closing fence
-    const logMatch = text.match(/```(?:markdown)?\s*\r?\n([\s\S]*?)```/)
-    // Fallback: if truncated (no closing fence), grab everything after the opening fence
-    const truncatedMatch = !logMatch && text.match(/```(?:markdown)?\s*\r?\n([\s\S]+)$/)
-    const extracted = logMatch?.[1] || truncatedMatch?.[1]
+    let fullText = ''
+    for await (const event of stream) {
+      if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+        fullText += event.delta.text
+        send({ chunk: event.delta.text })
+      }
+    }
 
+    // Extract and save updated training log
+    const logMatch = fullText.match(/```(?:markdown)?\s*\r?\n([\s\S]*?)```/)
+    const truncatedMatch = !logMatch && fullText.match(/```(?:markdown)?\s*\r?\n([\s\S]+)$/)
+    const extracted = logMatch?.[1] || truncatedMatch?.[1]
     if (extracted) {
       getDb().prepare('INSERT OR REPLACE INTO training_logs (user_id, content, updated_at) VALUES (?, ?, ?)').run(req.user.sub, extracted.trim(), Date.now())
     }
 
-    res.json({
-      answer: text.replace(/```(?:markdown)?\s*\r?\n[\s\S]*?```/g, '').replace(/```(?:markdown)?\s*\r?\n[\s\S]+$/, '').trim(),
-      logUpdated: !!(logMatch || truncatedMatch),
-    })
+    send({ done: true, logUpdated: !!(logMatch || truncatedMatch) })
+    res.end()
   } catch (e) {
-    res.status(500).json({ answer: `ERROR: ${e.message}` })
+    send({ error: e.message })
+    res.end()
   }
 })
 

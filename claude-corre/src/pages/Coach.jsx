@@ -55,9 +55,12 @@ export default function Coach() {
     const q = text || input.trim()
     if (!q || loading) return
     setInput('')
-    const nextMessages = [...messages, { role: 'user', content: q }]
-    setMessages(nextMessages)
+    setMessages(prev => [...prev, { role: 'user', content: q }])
     setLoading(true)
+    setLastLogStatus(null)
+
+    // Add empty assistant placeholder for streaming
+    setMessages(prev => [...prev, { role: 'assistant', content: '' }])
 
     try {
       const res = await fetch('/api/ask-coach', {
@@ -65,18 +68,48 @@ export default function Coach() {
         headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
         body: JSON.stringify({ question: q, history: messages.slice(-6) })
       })
-      if (!res.ok) throw new Error(`Server error ${res.status}`)
-      const data = await res.json()
-      setMessages(prev => [...prev, { role: 'assistant', content: data.answer || 'No response.' }])
-      if (data.logUpdated) {
-        setLastLogStatus('saved')
-        window.dispatchEvent(new CustomEvent('log-updated'))
-      } else {
-        setLastLogStatus('not-saved')
+      if (!res.ok) {
+        const errText = await res.text().catch(() => '')
+        throw new Error(`Server error ${res.status}${errText ? ': ' + errText : ''}`)
+      }
+
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let rawText = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() // keep incomplete last line
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          let evt
+          try { evt = JSON.parse(line.slice(6)) } catch { continue }
+
+          if (evt.error) throw new Error(evt.error)
+
+          if (evt.chunk) {
+            rawText += evt.chunk
+            // Strip code block from displayed text as it streams in
+            const display = rawText
+              .replace(/```(?:markdown)?\s*\r?\n[\s\S]*?```/g, '')
+              .replace(/```(?:markdown)?\s*\r?\n[\s\S]+$/, '')
+              .trim()
+            setMessages(prev => [...prev.slice(0, -1), { role: 'assistant', content: display }])
+          }
+
+          if (evt.done) {
+            setLastLogStatus(evt.logUpdated ? 'saved' : 'not-saved')
+            if (evt.logUpdated) window.dispatchEvent(new CustomEvent('log-updated'))
+          }
+        }
       }
     } catch (e) {
-      // Add error as assistant message to preserve user→assistant alternation
-      setMessages(prev => [...prev, { role: 'assistant', content: `[ERROR: ${e.message}]` }])
+      setMessages(prev => [...prev.slice(0, -1), { role: 'assistant', content: `[ERROR: ${e.message}]` }])
     }
     setLoading(false)
   }
