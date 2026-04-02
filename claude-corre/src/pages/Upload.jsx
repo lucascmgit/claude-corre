@@ -21,7 +21,15 @@ export default function Upload() {
   const [status, setStatus] = useState('idle') // idle | uploading | done | error
   const [output, setOutput] = useState('')
   const [prescription, setPrescription] = useState('')
+  const [hasGarminTokens, setHasGarminTokens] = useState(false)
   const inputRef = useRef()
+
+  useEffect(() => {
+    fetch('/api/settings', { headers: getAuthHeader() })
+      .then(r => r.json())
+      .then(d => setHasGarminTokens(!!d.hasGarminOauth2))
+      .catch(() => {})
+  }, [])
 
   function handleFile(f) {
     if (!f || !f.name.endsWith('.csv')) {
@@ -141,9 +149,14 @@ export default function Upload() {
             <div className="coach-output" style={{marginBottom:'12px'}}>
               <ReactMarkdown remarkPlugins={[remarkGfm]}>{prescription}</ReactMarkdown>
             </div>
-            <button className="term-btn amber" onClick={pushToGarmin} disabled={status === 'uploading'}>
-              [→ GENERATE + PUSH TO GARMIN WATCH]
-            </button>
+            {hasGarminTokens
+              ? <button className="term-btn amber" onClick={pushToGarmin} disabled={status === 'uploading'}>
+                  [→ GENERATE + PUSH TO GARMIN WATCH]
+                </button>
+              : <div style={{ fontSize: '12px', color: '#444' }}>
+                  Add Garmin tokens in <span className="amber">[SETTINGS]</span> to push workouts to your watch.
+                </div>
+            }
           </div>
         </div>
       )}

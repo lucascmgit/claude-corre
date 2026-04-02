@@ -225,6 +225,7 @@ function parseLogToDashboard(log) {
 
   // isNewUser only if profile is completely empty AND goal is unconfigured
   const hasProfileData = Object.values(profile).some(v => v && v !== '—' && v !== '-')
+  const goalMatch = log.match(/\*\*Goal:\*\*\s*(.+)/)
   const isNewUser = !hasProfileData && (!goalMatch || goalMatch[1]?.includes('Not yet configured'))
 
   const zones = parseTable(getSection(log, 'Training Zones'))
@@ -233,8 +234,6 @@ function parseLogToDashboard(log) {
     .map(normalizeActivity)
     .filter(a => a.Date && a.Date !== '—' && a.Date !== '-')
     .reverse()
-
-  const goalMatch = log.match(/\*\*Goal:\*\*\s*(.+)/)
   const phaseMatch = log.match(/\*\*Current Phase:\*\*\s*(.+)/)
   const weekMatch = log.match(/\*\*Current Week:\*\*\s*(.+)/)
 
@@ -318,6 +317,7 @@ app.post('/api/settings', requireAuth, (req, res) => {
 // ── Coach chat ─────────────────────────────────────────────────────────────────
 
 app.post('/api/ask-coach', requireAuth, async (req, res) => {
+  if (rateLimit(`coach:${req.user.sub}`, 20, 60_000)) return res.status(429).json({ answer: 'Rate limit: max 20 messages per minute.' })
   const apiKey = getUserApiKey(req.user.sub)
   if (!apiKey) return res.status(503).json({ answer: 'No Anthropic API key configured. Go to [SETTINGS] and add your API key.' })
 
@@ -452,6 +452,7 @@ app.post('/api/push-workout', requireAuth, async (req, res) => {
   if (!garminOauth2?.access_token) return res.status(503).json({ error: `Token missing access_token field. Re-paste the full oauth2_token.json content in [SETTINGS]. Keys found: ${Object.keys(garminOauth2 || {}).join(', ')}` })
 
   const { prescription } = req.body
+  if (!prescription || typeof prescription !== 'string') return res.status(400).json({ error: 'No prescription provided.' })
   const client = new Anthropic({ apiKey })
 
   const extract = await client.messages.create({
