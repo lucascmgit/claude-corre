@@ -188,9 +188,9 @@ export default function Settings() {
       {/* Security note */}
       <div className="term-box">
         <div className="term-box-title">SECURITY</div>
-        <div className="term-box-body" style={{ fontSize: '12px', color: '#555' }}>
+        <div className="term-box-body" style={{ fontSize: '13px', color: '#666' }}>
           <div>• Your API key and Garmin tokens are encrypted at rest using AES-256-GCM.</div>
-          <div>• They are stored in your private namespace on Netlify Blobs.</div>
+          <div>• They are stored encrypted in the database, isolated to your account.</div>
           <div>• No other user can access your data.</div>
           <div>• Your key is never sent to the browser — only used server-side per request.</div>
           <div>• Garmin tokens expire in ~30 days. Re-run browser_auth.py when needed.</div>

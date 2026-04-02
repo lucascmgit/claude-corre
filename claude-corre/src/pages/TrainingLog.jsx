@@ -31,6 +31,7 @@ export default function TrainingLog() {
       setEditing(false)
       setStatus('saved')
       setTimeout(() => setStatus('idle'), 2000)
+      window.dispatchEvent(new CustomEvent('log-updated'))
     } catch (e) {
       setStatus('error')
     }

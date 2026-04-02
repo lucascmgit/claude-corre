@@ -12,8 +12,26 @@ import { NEW_USER_LOG } from './server/log.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const PORT = process.env.PORT || 3001
-const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-in-production'
 const IS_PROD = process.env.NODE_ENV === 'production'
+const JWT_SECRET = process.env.JWT_SECRET || (IS_PROD
+  ? (() => { throw new Error('JWT_SECRET env var is required in production') })()
+  : 'dev-secret-change-in-production')
+
+// ── Simple in-memory rate limiter ─────────────────────────────────────────────
+const rateLimitMap = new Map()
+function rateLimit(key, maxAttempts = 5, windowMs = 60_000) {
+  const now = Date.now()
+  const entry = rateLimitMap.get(key) || { count: 0, resetAt: now + windowMs }
+  if (now > entry.resetAt) { entry.count = 0; entry.resetAt = now + windowMs }
+  entry.count++
+  rateLimitMap.set(key, entry)
+  return entry.count > maxAttempts
+}
+// Clean up stale entries every 5 minutes
+setInterval(() => {
+  const now = Date.now()
+  for (const [k, v] of rateLimitMap) if (now > v.resetAt) rateLimitMap.delete(k)
+}, 300_000)
 
 const COACH_SYSTEM_PROMPT = `You are a personal running coach. You are scientific, direct, and never sycophantic. You base every recommendation on proven training principles (Daniels, Seiler, Galloway, Hawley).
 
@@ -112,6 +130,9 @@ function requireAuth(req, res, next) {
 // ── Auth routes ────────────────────────────────────────────────────────────────
 
 app.post('/api/auth/signup', async (req, res) => {
+  const ip = req.headers['x-forwarded-for']?.split(',')[0] || req.socket.remoteAddress || 'unknown'
+  if (rateLimit(`signup:${ip}`)) return res.status(429).json({ error: 'Too many attempts. Try again in a minute.' })
+
   const { email, password } = req.body || {}
   if (!email || !password) return res.status(400).json({ error: 'Email and password required' })
   if (password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' })
@@ -129,11 +150,14 @@ app.post('/api/auth/signup', async (req, res) => {
 })
 
 app.post('/api/auth/login', async (req, res) => {
+  const ip = req.headers['x-forwarded-for']?.split(',')[0] || req.socket.remoteAddress || 'unknown'
+  if (rateLimit(`login:${ip}`, 10)) return res.status(429).json({ error: 'Too many attempts. Try again in a minute.' })
+
   const { email, password } = req.body || {}
   if (!email || !password) return res.status(400).json({ error: 'Email and password required' })
 
   const db = getDb()
-  const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email.toLowerCase())
+  const user = db.prepare('SELECT id, email, password_hash FROM users WHERE email = ?').get(email.toLowerCase())
   if (!user) return res.status(401).json({ error: 'Invalid email or password' })
 
   const valid = await bcrypt.compare(password, user.password_hash)
@@ -151,7 +175,8 @@ app.get('/api/auth/me', requireAuth, (req, res) => {
 
 function getSection(log, heading) {
   const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const match = log.match(new RegExp(`## ${escaped}\\n([\\s\\S]*?)(?=\\n## |$)`))
+  // Match ## Heading (with optional trailing text), handle --- separators too
+  const match = log.match(new RegExp(`## ${escaped}[^\\n]*\\n([\\s\\S]*?)(?=\\n---\\n|\\n## |$)`))
   return match ? match[1].trim() : ''
 }
 
@@ -169,16 +194,41 @@ function parseTable(text) {
     .filter(row => Object.values(row).some(v => v && v !== '—' && v !== '-'))
 }
 
-function parseLogToDashboard(log) {
-  const isNewUser = log.includes('Not yet configured') || log.includes('No activities yet')
+// Normalize activity row keys — Claude may use different column names
+function normalizeActivity(act) {
+  const get = (...keys) => { for (const k of keys) if (act[k]) return act[k]; return '' }
+  return {
+    Date:       get('Date', 'date'),
+    Day:        get('Day', 'day'),
+    Type:       get('Type', 'type', 'Activity', 'Session'),
+    Distance:   get('Distance', 'distance', 'Dist'),
+    'Avg Pace': get('Avg Pace', 'Pace', 'pace', 'Average Pace'),
+    'Avg HR':   get('Avg HR', 'HR', 'avg_hr', 'Average HR', 'Heart Rate'),
+    'Max HR':   get('Max HR', 'max_hr', 'Max Heart Rate'),
+    'Avg Cadence': get('Avg Cadence', 'Cadence', 'cadence'),
+    Notes:      get('Notes', 'notes', 'Comment'),
+  }
+}
 
-  const profileRows = parseTable(getSection(log, 'Athlete Profile'))
+function parseLogToDashboard(log) {
+  const profileSection = getSection(log, 'Athlete Profile')
+  const profileRows = parseTable(profileSection)
   const profile = {}
-  profileRows.forEach(r => { if (r.Field && r.Value) profile[r.Field] = r.Value })
+  profileRows.forEach(r => {
+    // Support both "Field/Value" and "Metric/Value" column names
+    const key = r.Field || r.Metric || r.Item
+    const val = r.Value || r.Data
+    if (key && val) profile[key] = val
+  })
+
+  // isNewUser only if profile truly has no name
+  const name = profile.Name || profile.name || ''
+  const isNewUser = !name || name === '—' || name === '-'
 
   const zones = parseTable(getSection(log, 'Training Zones'))
 
   const activities = parseTable(getSection(log, 'Activity Log'))
+    .map(normalizeActivity)
     .filter(a => a.Date && a.Date !== '—' && a.Date !== '-')
     .reverse()
 
