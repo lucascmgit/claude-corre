@@ -221,9 +221,9 @@ function parseLogToDashboard(log) {
     if (key && val) profile[key] = val
   })
 
-  // isNewUser only if profile truly has no name
-  const name = profile.Name || profile.name || ''
-  const isNewUser = !name || name === '—' || name === '-'
+  // isNewUser only if profile is completely empty AND goal is unconfigured
+  const hasProfileData = Object.values(profile).some(v => v && v !== '—' && v !== '-')
+  const isNewUser = !hasProfileData && (!goalMatch || goalMatch[1]?.includes('Not yet configured'))
 
   const zones = parseTable(getSection(log, 'Training Zones'))
 
