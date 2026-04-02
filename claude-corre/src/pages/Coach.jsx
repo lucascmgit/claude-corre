@@ -37,6 +37,7 @@ export default function Coach() {
   ])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
+  const [lastLogStatus, setLastLogStatus] = useState(null) // 'saved' | 'not-saved' | null
   const bottomRef = useRef()
 
   // Only scroll into view when user sends a message (not when coach answers)
@@ -67,7 +68,12 @@ export default function Coach() {
       if (!res.ok) throw new Error(`Server error ${res.status}`)
       const data = await res.json()
       setMessages(prev => [...prev, { role: 'assistant', content: data.answer || 'No response.' }])
-      if (data.logUpdated) window.dispatchEvent(new CustomEvent('log-updated'))
+      if (data.logUpdated) {
+        setLastLogStatus('saved')
+        window.dispatchEvent(new CustomEvent('log-updated'))
+      } else {
+        setLastLogStatus('not-saved')
+      }
     } catch (e) {
       // Add error as assistant message to preserve user→assistant alternation
       setMessages(prev => [...prev, { role: 'assistant', content: `[ERROR: ${e.message}]` }])
@@ -80,7 +86,15 @@ export default function Coach() {
       <div className="term-box">
         <div className="term-box-title">
           <span>COACH TERMINAL</span>
-          <span className="dim">// claude sonnet</span>
+          <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+            {lastLogStatus === 'saved' && (
+              <span className="status-ok" style={{ fontSize: '12px' }}>✓ LOG SAVED</span>
+            )}
+            {lastLogStatus === 'not-saved' && (
+              <span style={{ fontSize: '12px', color: '#666' }}>◌ LOG NOT UPDATED</span>
+            )}
+            <span className="dim">// claude sonnet</span>
+          </div>
         </div>
         <div className="term-box-body">
 

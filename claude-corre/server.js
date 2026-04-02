@@ -51,15 +51,17 @@ KEY PRINCIPLES:
 3. 10% rule: never increase weekly volume >10-15% (Buist et al., 2010).
 4. Adjust HR targets down 5-8 bpm in heat (30C+).
 
-ACTIVITY LOGGING:
-When the user reports completing any activity (yoga, run, cycling, functional training, rest day, strength, etc.):
-1. Add it to the Activity Log table in the training log (Date, Day, Type, Distance if applicable, Notes).
-2. Acknowledge briefly and note any training implications.
-3. If relevant to recovery or load, adjust the next prescribed session.
-4. Include the FULL updated training log in a markdown code block at the END of your response:
+ACTIVITY LOGGING — MANDATORY RULE:
+When the user reports completing ANY activity (yoga, run, cycling, functional training, rest day, strength, walk, etc.):
+1. Add it to the Activity Log table in the training log. Use the EXACT column order: Date | Day | Type | Distance | Avg Pace | Avg HR | Max HR | Avg Cadence | Notes. Use — for missing fields.
+2. Keep existing rows exactly as-is. Only ADD the new row. Do not reformat, truncate, or rearrange existing entries.
+3. Acknowledge briefly and note any training implications.
+4. YOU MUST ALWAYS include the FULL updated training log in a markdown code block at the END of your response, even if the only change is one new row. No exceptions. Format:
 \`\`\`markdown
 [FULL UPDATED TRAINING LOG HERE]
 \`\`\`
+
+If you do not include this block, the activity will not be saved. Always include it.
 
 ONBOARDING:
 If the training log shows "Not yet configured", guide the user through setting up their profile by asking:
@@ -337,13 +339,14 @@ app.post('/api/ask-coach', requireAuth, async (req, res) => {
     })
 
     const text = response.content[0]?.text || ''
-    const logMatch = text.match(/```(?:markdown)?\n([\s\S]*?)```/)
+    // Tolerant extraction: optional lang tag, optional whitespace after backticks
+    const logMatch = text.match(/```(?:markdown)?\s*\r?\n([\s\S]*?)```/)
     if (logMatch) {
       getDb().prepare('INSERT OR REPLACE INTO training_logs (user_id, content, updated_at) VALUES (?, ?, ?)').run(req.user.sub, logMatch[1].trim(), Date.now())
     }
 
     res.json({
-      answer: text.replace(/```(?:markdown)?[\s\S]*?```/g, '').trim(),
+      answer: text.replace(/```(?:markdown)?\s*\r?\n[\s\S]*?```/g, '').trim(),
       logUpdated: !!logMatch,
     })
   } catch (e) {
@@ -374,13 +377,13 @@ app.post('/api/upload-activity', requireAuth, async (req, res) => {
 
     const text = response.content[0]?.text || ''
     const prescMatch = text.match(/## NEXT PRESCRIBED SESSION([\s\S]*?)(?=##|$)/)
-    const logMatch = text.match(/```(?:markdown)?\n([\s\S]*?)```/)
+    const logMatch = text.match(/```(?:markdown)?\s*\r?\n([\s\S]*?)```/)
     if (logMatch) {
       getDb().prepare('INSERT OR REPLACE INTO training_logs (user_id, content, updated_at) VALUES (?, ?, ?)').run(req.user.sub, logMatch[1].trim(), Date.now())
     }
 
     res.json({
-      analysis: text.replace(/```(?:markdown)?[\s\S]*?```/g, '').trim(),
+      analysis: text.replace(/```(?:markdown)?\s*\r?\n[\s\S]*?```/g, '').trim(),
       prescription: prescMatch ? prescMatch[0].trim() : '',
     })
   } catch (e) {

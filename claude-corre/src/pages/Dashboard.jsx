@@ -51,20 +51,20 @@ function ActivityRow({ act, expanded, onToggle }) {
   return (
     <Fragment>
       <tr className={`clickable ${expanded ? 'expanded' : ''}`} onClick={handleToggle}>
-        <td className="dim">{act.Date}</td>
-        <td>{expanded ? '▼ ' : '▶ '}{act.Type || act.Day}</td>
-        <td>{act.Distance || '—'}</td>
-        <td>{act['Avg Pace'] || '—'}</td>
-        <td className={hrClass}>{act['Avg HR'] || '—'}</td>
-        <td>{act['Max HR'] || '—'}</td>
-        <td className="dim" style={{ fontSize: '11px', maxWidth: '200px' }}>{act.Notes || '—'}</td>
+        <td className="dim nowrap">{act.Date}</td>
+        <td className="nowrap">{expanded ? '▼ ' : '▶ '}{act.Type || act.Day}</td>
+        <td className="nowrap">{act.Distance || '—'}</td>
+        <td className="nowrap">{act['Avg Pace'] || '—'}</td>
+        <td className={`nowrap ${hrClass}`}>{act['Avg HR'] || '—'}</td>
+        <td className="nowrap">{act['Max HR'] || '—'}</td>
+        <td className="dim" style={{ fontSize: '13px' }}>{act.Notes || '—'}</td>
       </tr>
       {expanded && (
         <tr>
           <td colSpan={7} style={{ padding: 0 }}>
-            <div className="activity-detail" style={{ fontSize: '12px' }}>
-              {act['Avg Cadence'] && <div><span className="amber">Cadence:</span> {act['Avg Cadence']}</div>}
-              {act.Notes && <div style={{ marginTop: '4px' }} className="dim">{act.Notes}</div>}
+            <div className="activity-detail" style={{ fontSize: '13px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              {act['Avg Cadence'] && act['Avg Cadence'] !== '—' && <div><span className="amber">Cadence:</span> {act['Avg Cadence']}</div>}
+              {act.Notes && act.Notes !== '—' && <div className="dim" style={{ lineHeight: '1.6' }}>{act.Notes}</div>}
             </div>
           </td>
         </tr>
