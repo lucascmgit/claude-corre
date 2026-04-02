@@ -415,18 +415,23 @@ app.post('/api/upload-activity', requireAuth, async (req, res) => {
 
 function buildEasyRunWorkout(name, distanceMeters, hrMin, hrMax) {
   const date = new Date().toISOString().split('T')[0]
+  const TARGET_NONE = { workoutTargetTypeId: 1, workoutTargetTypeKey: 'no.target' }
+  const hrTarget = {
+    workoutTargetTypeId: 4,
+    workoutTargetTypeKey: 'heart.rate.between',
+    targetValueOne: String(hrMin),
+    targetValueTwo: String(hrMax),
+  }
   return {
     sportType: { sportTypeId: 1, sportTypeKey: 'running' },
     workoutName: `${name} [${date}]`,
-    estimatedDurationInSecs: Math.round(distanceMeters * 0.42),
-    estimatedDistanceInMeters: distanceMeters,
     workoutSegments: [{
       segmentOrder: 1,
       sportType: { sportTypeId: 1, sportTypeKey: 'running' },
       workoutSteps: [
-        { stepOrder: 1, stepType: { stepTypeId: 1, stepTypeKey: 'warmup' }, childStepId: null, description: 'Walk warm-up', endCondition: { conditionTypeId: 2, conditionTypeKey: 'time' }, endConditionValue: 240, targetType: { workoutTargetTypeId: 1, workoutTargetTypeKey: 'no.target' }, targetValueOne: null, targetValueTwo: null },
-        { stepOrder: 2, stepType: { stepTypeId: 3, stepTypeKey: 'interval' }, childStepId: null, description: `Z2 easy run — HR ${hrMin}-${hrMax} bpm`, endCondition: { conditionTypeId: 3, conditionTypeKey: 'distance' }, endConditionValue: distanceMeters, targetType: { workoutTargetTypeId: 4, workoutTargetTypeKey: 'heart.rate.zone' }, targetValueOne: hrMin + 100, targetValueTwo: hrMax + 100 },
-        { stepOrder: 3, stepType: { stepTypeId: 2, stepTypeKey: 'cooldown' }, childStepId: null, description: 'Walk cool-down', endCondition: { conditionTypeId: 2, conditionTypeKey: 'time' }, endConditionValue: 240, targetType: { workoutTargetTypeId: 1, workoutTargetTypeKey: 'no.target' }, targetValueOne: null, targetValueTwo: null },
+        { type: 'ExecutableStepDTO', stepOrder: 1, stepType: { stepTypeId: 1, stepTypeKey: 'warmup' },   description: 'Walk 5 min to warm up',                          endCondition: { conditionTypeId: 2, conditionTypeKey: 'time' },     endConditionValue: 300,             targetType: TARGET_NONE },
+        { type: 'ExecutableStepDTO', stepOrder: 2, stepType: { stepTypeId: 3, stepTypeKey: 'interval' }, description: `Run — keep HR ${hrMin}-${hrMax} bpm`,            endCondition: { conditionTypeId: 3, conditionTypeKey: 'distance' }, endConditionValue: distanceMeters,  targetType: hrTarget },
+        { type: 'ExecutableStepDTO', stepOrder: 3, stepType: { stepTypeId: 2, stepTypeKey: 'cooldown' }, description: 'Walk 5 min to cool down',                         endCondition: { conditionTypeId: 2, conditionTypeKey: 'time' },     endConditionValue: 300,             targetType: TARGET_NONE },
       ],
     }],
   }
