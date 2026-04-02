@@ -67,6 +67,7 @@ export default function Coach() {
       if (!res.ok) throw new Error(`Server error ${res.status}`)
       const data = await res.json()
       setMessages(prev => [...prev, { role: 'assistant', content: data.answer || 'No response.' }])
+      if (data.logUpdated) window.dispatchEvent(new CustomEvent('log-updated'))
     } catch (e) {
       // Add error as assistant message to preserve user→assistant alternation
       setMessages(prev => [...prev, { role: 'assistant', content: `[ERROR: ${e.message}]` }])

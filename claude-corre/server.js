@@ -147,6 +147,64 @@ app.get('/api/auth/me', requireAuth, (req, res) => {
   res.json({ email: req.user.email, id: req.user.sub })
 })
 
+// ── Markdown parser ────────────────────────────────────────────────────────────
+
+function getSection(log, heading) {
+  const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const match = log.match(new RegExp(`## ${escaped}\\n([\\s\\S]*?)(?=\\n## |$)`))
+  return match ? match[1].trim() : ''
+}
+
+function parseTable(text) {
+  const lines = text.split('\n').filter(l => l.trim().startsWith('|'))
+  if (lines.length < 3) return []
+  const headers = lines[0].split('|').map(h => h.trim()).filter(Boolean)
+  return lines.slice(2)
+    .map(row => {
+      const cells = row.split('|').map(c => c.trim()).filter(Boolean)
+      const obj = {}
+      headers.forEach((h, i) => { obj[h] = cells[i] || '' })
+      return obj
+    })
+    .filter(row => Object.values(row).some(v => v && v !== '—' && v !== '-'))
+}
+
+function parseLogToDashboard(log) {
+  const isNewUser = log.includes('Not yet configured') || log.includes('No activities yet')
+
+  const profileRows = parseTable(getSection(log, 'Athlete Profile'))
+  const profile = {}
+  profileRows.forEach(r => { if (r.Field && r.Value) profile[r.Field] = r.Value })
+
+  const zones = parseTable(getSection(log, 'Training Zones'))
+
+  const activities = parseTable(getSection(log, 'Activity Log'))
+    .filter(a => a.Date && a.Date !== '—' && a.Date !== '-')
+    .reverse()
+
+  const goalMatch = log.match(/\*\*Goal:\*\*\s*(.+)/)
+  const phaseMatch = log.match(/\*\*Current Phase:\*\*\s*(.+)/)
+  const weekMatch = log.match(/\*\*Current Week:\*\*\s*(.+)/)
+
+  return {
+    isNewUser,
+    profile,
+    goal: goalMatch?.[1]?.trim() || '—',
+    phase: phaseMatch?.[1]?.trim() || '—',
+    currentWeek: weekMatch?.[1]?.trim() || null,
+    zones,
+    activities,
+    prescription: getSection(log, 'Prescribed Sessions'),
+    coachNotes: getSection(log, 'Coach Notes'),
+  }
+}
+
+app.get('/api/dashboard', requireAuth, (req, res) => {
+  const row = getDb().prepare('SELECT content FROM training_logs WHERE user_id = ?').get(req.user.sub)
+  const log = row?.content || NEW_USER_LOG
+  res.json(parseLogToDashboard(log))
+})
+
 // ── Training log ───────────────────────────────────────────────────────────────
 
 app.get('/api/training-log', requireAuth, (req, res) => {
@@ -234,7 +292,10 @@ app.post('/api/ask-coach', requireAuth, async (req, res) => {
       getDb().prepare('INSERT OR REPLACE INTO training_logs (user_id, content, updated_at) VALUES (?, ?, ?)').run(req.user.sub, logMatch[1].trim(), Date.now())
     }
 
-    res.json({ answer: text.replace(/```(?:markdown)?[\s\S]*?```/g, '').trim() })
+    res.json({
+      answer: text.replace(/```(?:markdown)?[\s\S]*?```/g, '').trim(),
+      logUpdated: !!logMatch,
+    })
   } catch (e) {
     res.status(500).json({ answer: `ERROR: ${e.message}` })
   }

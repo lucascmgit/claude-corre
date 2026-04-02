@@ -52,6 +52,7 @@ export default function Upload() {
       setOutput(data.analysis || 'No analysis returned.')
       setPrescription(data.prescription || '')
       setStatus('done')
+      window.dispatchEvent(new CustomEvent('log-updated'))
     } catch (e) {
       setOutput(`ERROR: ${e.message}`)
       setStatus('error')

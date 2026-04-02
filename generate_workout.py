@@ -21,7 +21,7 @@ from datetime import date
 WORKOUTS_DIR = os.path.join(os.path.dirname(__file__), "workouts")
 os.makedirs(WORKOUTS_DIR, exist_ok=True)
 
-# HR zones calibrated from Lucas's data (max HR ~182)
+# HR zones — calibrate these to your own max HR
 HR_ZONES = {
     "z1_max": 130,   # recovery ceiling
     "z2_min": 130,   # easy floor

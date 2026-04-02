@@ -29,7 +29,7 @@ from fit_tool.profile.profile_type import (
 WORKOUTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "workouts")
 os.makedirs(WORKOUTS_DIR, exist_ok=True)
 
-# HR zones for Lucas (max HR ~182 bpm)
+# HR zones — calibrate these to your own max HR
 Z2_MIN = 130
 Z2_MAX = 142
 
