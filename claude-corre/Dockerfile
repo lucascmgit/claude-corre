@@ -14,7 +14,6 @@ COPY server.js ./
 COPY server/ ./server/
 
 RUN mkdir -p /app/data
-VOLUME ["/app/data"]
 
 ENV NODE_ENV=production
 ENV PORT=3000
