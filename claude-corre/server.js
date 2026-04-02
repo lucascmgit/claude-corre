@@ -436,8 +436,15 @@ app.post('/api/push-workout', requireAuth, async (req, res) => {
   const apiKey = getUserApiKey(req.user.sub)
   if (!apiKey) return res.status(503).json({ error: 'No Anthropic API key configured. Go to [SETTINGS].' })
 
-  const garmin = getUserGarminTokens(req.user.sub)
-  if (!garmin.oauth2?.access_token) return res.status(503).json({ error: 'Garmin tokens not configured. Go to [SETTINGS].' })
+  const s = getSettings(req.user.sub)
+  if (!s.garmin_oauth2_token) return res.status(503).json({ error: 'Garmin tokens not configured. Go to [SETTINGS].' })
+  let garminOauth2
+  try {
+    garminOauth2 = JSON.parse(decrypt(s.garmin_oauth2_token))
+  } catch (e) {
+    return res.status(503).json({ error: `Token decrypt failed: ${e.message}. Re-save your Garmin tokens in [SETTINGS].` })
+  }
+  if (!garminOauth2?.access_token) return res.status(503).json({ error: `Token missing access_token field. Re-paste the full oauth2_token.json content in [SETTINGS]. Keys found: ${Object.keys(garminOauth2 || {}).join(', ')}` })
 
   const { prescription } = req.body
   const client = new Anthropic({ apiKey })
@@ -455,7 +462,7 @@ app.post('/api/push-workout', requireAuth, async (req, res) => {
 
   const garminRes = await fetch('https://connectapi.garmin.com/workout-service/workout', {
     method: 'POST',
-    headers: { 'Authorization': `Bearer ${garmin.oauth2.access_token}`, 'Content-Type': 'application/json', 'User-Agent': 'GCM-iOS-5.7.2.1' },
+    headers: { 'Authorization': `Bearer ${garminOauth2.access_token}`, 'Content-Type': 'application/json', 'User-Agent': 'GCM-iOS-5.7.2.1' },
     body: JSON.stringify(workout),
   })
 
