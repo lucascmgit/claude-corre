@@ -7,6 +7,7 @@ import TrainingLog from './pages/TrainingLog.jsx'
 import About from './pages/About.jsx'
 import Login from './pages/Login.jsx'
 import Settings from './pages/Settings.jsx'
+import Onboarding from './pages/Onboarding.jsx'
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth()
@@ -46,6 +47,7 @@ function AppShell() {
 
       <Routes>
         <Route path="/"         element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+        <Route path="/onboard"  element={<ProtectedRoute><Onboarding /></ProtectedRoute>} />
         <Route path="/upload"   element={<ProtectedRoute><Upload /></ProtectedRoute>} />
         <Route path="/coach"    element={<ProtectedRoute><Coach /></ProtectedRoute>} />
         <Route path="/log"      element={<ProtectedRoute><TrainingLog /></ProtectedRoute>} />

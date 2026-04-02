@@ -19,10 +19,11 @@ export default function Login() {
     try {
       if (mode === 'login') {
         await login(email.trim(), password)
+        navigate('/')
       } else {
         await signup(email.trim(), password)
+        navigate('/onboard')
       }
-      navigate('/')
     } catch (err) {
       setError(err.message)
     }

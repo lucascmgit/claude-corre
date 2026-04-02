@@ -314,6 +314,40 @@ app.post('/api/settings', requireAuth, (req, res) => {
   res.json({ ok: true })
 })
 
+// ── Onboarding helpers ────────────────────────────────────────────────────────
+
+app.get('/api/onboard-status', requireAuth, (req, res) => {
+  const s = getSettings(req.user.sub)
+  const logRow = getDb().prepare('SELECT content FROM training_logs WHERE user_id = ?').get(req.user.sub)
+  const log = logRow?.content || NEW_USER_LOG
+  const parsed = parseLogToDashboard(log)
+  res.json({
+    hasApiKey: !!s.anthropic_api_key,
+    isNewUser: parsed.isNewUser,
+    hasGarminTokens: !!s.garmin_oauth2_token,
+  })
+})
+
+app.post('/api/validate-key', requireAuth, async (req, res) => {
+  const { apiKey } = req.body
+  if (!apiKey || typeof apiKey !== 'string') return res.status(400).json({ valid: false, error: 'No key provided.' })
+  if (!apiKey.startsWith('sk-ant-')) return res.status(400).json({ valid: false, error: 'Key must start with "sk-ant-". Make sure you copied the full key.' })
+  try {
+    const client = new Anthropic({ apiKey: apiKey.trim() })
+    await client.messages.create({ model: 'claude-haiku-4-5', max_tokens: 5, messages: [{ role: 'user', content: 'ping' }] })
+    // Key is valid — save it encrypted
+    const s = getSettings(req.user.sub)
+    const encrypted = encrypt(apiKey.trim())
+    getDb().prepare('INSERT OR REPLACE INTO user_settings (user_id, anthropic_api_key, garmin_oauth1_token, garmin_oauth2_token, updated_at) VALUES (?, ?, ?, ?, ?)').run(req.user.sub, encrypted, s.garmin_oauth1_token || null, s.garmin_oauth2_token || null, Date.now())
+    res.json({ valid: true })
+  } catch (e) {
+    const msg = e.status === 401
+      ? 'Key rejected by Anthropic. Double-check you copied the full key — it should start with "sk-ant-api03-...".'
+      : `Validation failed: ${e.message}`
+    res.status(400).json({ valid: false, error: msg })
+  }
+})
+
 // ── Coach chat ─────────────────────────────────────────────────────────────────
 
 app.post('/api/ask-coach', requireAuth, async (req, res) => {

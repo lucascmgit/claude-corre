@@ -1,4 +1,4 @@
-import { useEffect, useState, Fragment } from 'react'
+import { useEffect, useState, Fragment, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -82,6 +82,8 @@ export default function Dashboard() {
   const [garminStatus, setGarminStatus] = useState(null) // null | 'pushing' | 'ok' | 'error'
   const [garminMsg, setGarminMsg] = useState('')
 
+  const onboardChecked = useRef(false)
+
   function load() {
     setLoading(true)
     fetch('/api/dashboard', { headers: getAuthHeader() })
@@ -91,6 +93,14 @@ export default function Dashboard() {
   }
 
   useEffect(() => {
+    // Redirect to onboarding if setup is incomplete (first load only)
+    if (!onboardChecked.current) {
+      onboardChecked.current = true
+      fetch('/api/onboard-status', { headers: getAuthHeader() })
+        .then(r => r.json())
+        .then(s => { if (!s.hasApiKey || s.isNewUser) navigate('/onboard', { replace: true }) })
+        .catch(() => {})
+    }
     load()
     window.addEventListener('log-updated', load)
     return () => window.removeEventListener('log-updated', load)
@@ -119,27 +129,6 @@ export default function Dashboard() {
   if (!data) return <div className="red" style={{ padding: '24px' }}>ERROR: Could not load dashboard.</div>
 
   const { isNewUser, profile, goal, phase, currentWeek, zones, activities, prescription, coachNotes, hasGarminTokens } = data
-
-  if (isNewUser) {
-    return (
-      <div className="term-box">
-        <div className="term-box-title">WELCOME TO CLAUDE CORRE</div>
-        <div className="term-box-body">
-          <div style={{ marginBottom: '12px', color: '#aaa' }}>
-            Your athlete profile is not yet configured.
-          </div>
-          <div style={{ marginBottom: '16px', fontSize: '13px' }}>
-            Go to <span className="amber">[ASK COACH]</span> and say:
-            <div className="prompt" style={{ margin: '8px 0', fontSize: '14px' }}>
-              "I'm new here. Help me set up my training profile."
-            </div>
-            The coach will ask about your running history, goal, injuries, and schedule — then write your full training log.
-          </div>
-          <button className="term-btn amber" onClick={() => navigate('/coach')}>[GO TO COACH →]</button>
-        </div>
-      </div>
-    )
-  }
 
   return (
     <div>

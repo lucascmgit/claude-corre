@@ -1,0 +1,574 @@
+import { useState, useRef, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import { useAuth } from '../context/AuthContext.jsx'
+
+function StepBar({ step }) {
+  const steps = ['API KEY', 'YOUR PROFILE', 'GARMIN WATCH']
+  return (
+    <div style={{ display: 'flex', gap: '0', marginBottom: '20px', borderBottom: '1px solid #222' }}>
+      {steps.map((label, i) => {
+        const num = i + 1
+        const active = num === step
+        const done = num < step
+        return (
+          <div key={i} style={{
+            flex: 1,
+            padding: '8px 12px',
+            fontSize: '11px',
+            fontFamily: 'var(--font-mono)',
+            letterSpacing: '1px',
+            borderBottom: active ? '2px solid var(--amber)' : '2px solid transparent',
+            color: active ? 'var(--amber)' : done ? '#555' : '#333',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+          }}>
+            <span>{done ? '✓' : `${num}.`}</span>
+            <span>{label}</span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function Step1ApiKey({ onDone }) {
+  const { getAuthHeader } = useAuth()
+  const [key, setKey] = useState('')
+  const [status, setStatus] = useState(null) // null | 'validating' | 'ok' | 'error'
+  const [error, setError] = useState('')
+
+  async function validate() {
+    if (!key.trim()) return
+    setStatus('validating')
+    setError('')
+    try {
+      const res = await fetch('/api/validate-key', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+        body: JSON.stringify({ apiKey: key.trim() }),
+      })
+      const d = await res.json()
+      if (d.valid) {
+        setStatus('ok')
+      } else {
+        setStatus('error')
+        setError(d.error || 'Validation failed.')
+      }
+    } catch (e) {
+      setStatus('error')
+      setError('Network error — check your connection and try again.')
+    }
+  }
+
+  return (
+    <div>
+      <div className="term-box">
+        <div className="term-box-title">STEP 1 — CONNECT YOUR AI</div>
+        <div className="term-box-body">
+          <div style={{ marginBottom: '16px', color: '#aaa', lineHeight: '1.8' }}>
+            Claude Corre is powered by Claude, an AI made by Anthropic. To use it,
+            each person provides their own API key — a secret token that lets this app
+            talk to Claude on your behalf. You pay Anthropic directly for usage.
+          </div>
+          <div style={{ marginBottom: '16px', fontSize: '12px', color: '#555' }}>
+            Typical cost: $1–5/month of active coaching. Your key is encrypted and
+            never visible to anyone else.
+          </div>
+        </div>
+      </div>
+
+      <div className="term-box">
+        <div className="term-box-title">HOW TO GET YOUR API KEY — FOLLOW THESE STEPS</div>
+        <div className="term-box-body" style={{ fontSize: '14px', lineHeight: '2' }}>
+
+          <div style={{ marginBottom: '12px' }}>
+            <span className="amber">STEP 1 →</span>{' '}
+            Open this link in a new tab:{' '}
+            <a
+              href="https://console.anthropic.com/settings/keys"
+              target="_blank"
+              rel="noreferrer"
+              style={{ color: 'var(--amber)', textDecoration: 'underline' }}
+            >
+              console.anthropic.com/settings/keys
+            </a>
+          </div>
+
+          <div style={{ marginBottom: '12px' }}>
+            <span className="amber">STEP 2 →</span>{' '}
+            Create an account if you don&apos;t have one (it&apos;s free to sign up).
+            You&apos;ll need to add a credit card to use the API — Anthropic charges
+            per use, not a flat subscription.
+          </div>
+
+          <div style={{ marginBottom: '12px' }}>
+            <span className="amber">STEP 3 →</span>{' '}
+            Click <strong style={{ color: '#ddd' }}>&#34;+ Create Key&#34;</strong> and give it any name
+            (e.g. <em style={{ color: '#888' }}>claude-corre</em>).
+          </div>
+
+          <div style={{ marginBottom: '16px' }}>
+            <span className="amber">STEP 4 →</span>{' '}
+            A key will appear — it looks like this:
+            <div style={{
+              background: '#0d0d0d',
+              border: '1px solid #333',
+              padding: '8px 12px',
+              margin: '6px 0',
+              fontFamily: 'var(--font-mono)',
+              fontSize: '13px',
+              color: '#888',
+              letterSpacing: '0.5px',
+            }}>
+              sk-ant-api03-<span style={{ color: '#555' }}>XXXXXXXXXX...XXXX</span>-<span style={{ color: '#555' }}>XXXXXXXXXX-XXXXXXXXXXXXXXXXXX-XXXXXXXXXXXXXXXXXXX</span>AA
+            </div>
+            <span className="red">⚠ Copy it immediately.</span>{' '}
+            <span style={{ color: '#aaa' }}>
+              Once you close that dialog, you cannot see it again. If you lose it,
+              you&apos;ll need to create a new one.
+            </span>
+          </div>
+
+          <div style={{ borderTop: '1px solid #222', paddingTop: '16px', marginTop: '8px' }}>
+            <div className="dim" style={{ fontSize: '12px', marginBottom: '8px' }}>
+              STEP 5 → Paste your key below and click [VALIDATE + SAVE]:
+            </div>
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+              <input
+                className="term-input"
+                type="password"
+                value={key}
+                onChange={e => { setKey(e.target.value); setStatus(null) }}
+                placeholder="sk-ant-api03-..."
+                disabled={status === 'validating' || status === 'ok'}
+                onKeyDown={e => e.key === 'Enter' && validate()}
+              />
+              <button
+                className="term-btn amber"
+                onClick={validate}
+                disabled={!key.trim() || status === 'validating' || status === 'ok'}
+                style={{ whiteSpace: 'nowrap' }}
+              >
+                {status === 'validating' ? '[...]' : '[VALIDATE + SAVE]'}
+              </button>
+            </div>
+
+            {status === 'error' && (
+              <div className="red" style={{ fontSize: '13px', marginBottom: '8px' }}>
+                ✗ {error}
+              </div>
+            )}
+            {status === 'ok' && (
+              <div className="status-ok" style={{ fontSize: '13px', marginBottom: '8px' }}>
+                ✓ Key validated and saved. You&apos;re connected to Claude.
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+        <button
+          className="term-btn amber"
+          onClick={onDone}
+          disabled={status !== 'ok'}
+        >
+          [NEXT: SET UP YOUR PROFILE →]
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function Step2Profile({ onDone, onBack }) {
+  const { getAuthHeader } = useAuth()
+  const [messages, setMessages] = useState([])
+  const [input, setInput] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [profileSaved, setProfileSaved] = useState(false)
+  const bottomRef = useRef()
+  const startedRef = useRef(false)
+
+  // Auto-start the coach conversation
+  useEffect(() => {
+    if (startedRef.current) return
+    startedRef.current = true
+    sendToCoach("I'm new here. Please set up my running profile from scratch. Ask me what you need to know.")
+  }, [])
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages, loading])
+
+  async function sendToCoach(text) {
+    const q = text || input.trim()
+    if (!q || loading) return
+    setInput('')
+
+    const userMsg = { role: 'user', content: q }
+    setMessages(prev => [...prev, userMsg, { role: 'assistant', content: '' }])
+    setLoading(true)
+
+    try {
+      const history = messages.slice(-8).map(m => ({ role: m.role, content: m.content }))
+      const res = await fetch('/api/ask-coach', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+        body: JSON.stringify({ question: q, history }),
+      })
+      if (!res.ok) throw new Error(`Server error ${res.status}`)
+
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop()
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          let evt
+          try { evt = JSON.parse(line.slice(6)) } catch { continue }
+          if (evt.error) throw new Error(evt.error)
+          if (evt.chunk) {
+            const display = (evt.chunk)
+            setMessages(prev => {
+              const last = prev[prev.length - 1]
+              return [...prev.slice(0, -1), { ...last, content: last.content + display }]
+            })
+          }
+          if (evt.done && evt.logUpdated) {
+            setProfileSaved(true)
+            window.dispatchEvent(new CustomEvent('log-updated'))
+          }
+        }
+      }
+    } catch (e) {
+      setMessages(prev => [...prev.slice(0, -1), { role: 'assistant', content: `[ERROR: ${e.message}]` }])
+    }
+    setLoading(false)
+  }
+
+  // Strip markdown code blocks from display
+  function displayContent(content) {
+    return content
+      .replace(/```(?:markdown)?\s*\r?\n[\s\S]*?```/g, '')
+      .replace(/```(?:markdown)?\s*\r?\n[\s\S]+$/, '')
+      .trim()
+  }
+
+  return (
+    <div>
+      <div className="term-box">
+        <div className="term-box-title">STEP 2 — SET UP YOUR RUNNING PROFILE</div>
+        <div className="term-box-body" style={{ fontSize: '13px', color: '#888', marginBottom: '4px' }}>
+          The coach will ask about your running history, current fitness, goal, injuries, and schedule.
+          Answer honestly — the more detail you give, the better the plan.
+          When done, click <span className="amber">[FINISH SETUP]</span> below.
+        </div>
+      </div>
+
+      <div className="term-box">
+        <div className="term-box-title">
+          <span>COACH TERMINAL</span>
+          {profileSaved && <span className="status-ok" style={{ fontSize: '12px' }}>✓ PROFILE SAVED</span>}
+        </div>
+        <div className="term-box-body">
+          <div className="term-output" style={{ maxHeight: '420px', marginBottom: '12px' }}>
+            {messages.map((m, i) => (
+              <div key={i} style={{ marginBottom: '12px' }}>
+                {m.role === 'user'
+                  ? <div><span className="amber">YOU &gt; </span><span>{m.content}</span></div>
+                  : <div>
+                      <div className="status-ok" style={{ marginBottom: '2px' }}>COACH &gt;</div>
+                      <div className="coach-output" style={{ paddingLeft: '8px', lineHeight: '1.5' }}>
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{displayContent(m.content)}</ReactMarkdown>
+                      </div>
+                    </div>
+                }
+              </div>
+            ))}
+            {loading && (
+              <div style={{ color: '#555', fontStyle: 'italic' }}>COACH is typing...</div>
+            )}
+            <div ref={bottomRef} />
+          </div>
+
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <input
+              className="term-input"
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && sendToCoach()}
+              placeholder="type your answer..."
+              disabled={loading}
+            />
+            <button className="term-btn amber" onClick={() => sendToCoach()} disabled={!input.trim() || loading}>
+              [SEND]
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <button className="term-btn" onClick={onBack}>[← BACK]</button>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
+          {!profileSaved && (
+            <div className="dim" style={{ fontSize: '12px' }}>
+              The button unlocks once the coach saves your profile.
+            </div>
+          )}
+          <button className="term-btn amber" onClick={onDone} disabled={!profileSaved}>
+            [FINISH SETUP →]
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function Step3Garmin({ onDone, onBack }) {
+  const { getAuthHeader } = useAuth()
+  const [choice, setChoice] = useState(null) // null | 'yes' | 'skip'
+  const [tokenText, setTokenText] = useState('')
+  const [saveStatus, setSaveStatus] = useState(null) // null | 'saving' | 'ok' | 'error'
+  const [saveError, setSaveError] = useState('')
+
+  async function saveTokens() {
+    if (!tokenText.trim()) return
+    setSaveStatus('saving')
+    setSaveError('')
+    try {
+      // Validate it's parseable JSON with an access_token
+      let parsed
+      try { parsed = JSON.parse(tokenText.trim()) } catch {
+        setSaveStatus('error')
+        setSaveError('Invalid JSON. Make sure you copied the entire contents of oauth2_token.json, including the { and } brackets.')
+        return
+      }
+      if (!parsed.access_token) {
+        setSaveStatus('error')
+        setSaveError('The JSON is missing the "access_token" field. Make sure you copied the oauth2_token.json file, not oauth1_token.json.')
+        return
+      }
+      const res = await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+        body: JSON.stringify({ garminOauth2Token: tokenText.trim() }),
+      })
+      if (!res.ok) throw new Error('Save failed')
+      setSaveStatus('ok')
+    } catch (e) {
+      setSaveStatus('error')
+      setSaveError(e.message)
+    }
+  }
+
+  return (
+    <div>
+      <div className="term-box">
+        <div className="term-box-title">STEP 3 — GARMIN WATCH (OPTIONAL)</div>
+        <div className="term-box-body" style={{ lineHeight: '1.8' }}>
+          <div style={{ color: '#aaa', marginBottom: '16px' }}>
+            If you have a Garmin GPS watch, Claude Corre can push prescribed workouts
+            directly to it — so your watch will guide you with HR targets and distance
+            while you run. This is completely optional.
+          </div>
+          <div style={{ marginBottom: '16px', fontSize: '13px', color: '#555' }}>
+            You can always set this up later in <span className="amber">[SETTINGS]</span>.
+          </div>
+
+          {choice === null && (
+            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+              <button className="term-btn amber" onClick={() => setChoice('yes')}>
+                [YES, I HAVE A GARMIN WATCH]
+              </button>
+              <button className="term-btn" onClick={() => setChoice('skip')}>
+                [SKIP — NO WATCH / DO THIS LATER]
+              </button>
+            </div>
+          )}
+
+          {choice === 'skip' && (
+            <div style={{ color: '#aaa', fontSize: '13px' }}>
+              No problem. You can connect your Garmin any time from <span className="amber">[SETTINGS]</span>.
+            </div>
+          )}
+        </div>
+      </div>
+
+      {choice === 'yes' && (
+        <div className="term-box">
+          <div className="term-box-title">HOW TO CONNECT YOUR GARMIN WATCH</div>
+          <div className="term-box-body" style={{ fontSize: '14px', lineHeight: '2' }}>
+
+            <div style={{ marginBottom: '8px', color: '#888', fontSize: '13px' }}>
+              This takes about 2 minutes. You need Python 3 and Google Chrome on your computer.
+            </div>
+
+            <div style={{ marginBottom: '12px' }}>
+              <span className="amber">WHAT YOU NEED:</span>
+              <div style={{ paddingLeft: '16px', fontSize: '13px', color: '#888', lineHeight: '1.9' }}>
+                <div>✓ Python 3 → check by opening Terminal and typing: <code style={{ color: '#ccc', background: '#111', padding: '1px 6px' }}>python3 --version</code></div>
+                <div>✓ Google Chrome installed</div>
+                <div>✓ Your Garmin Connect username and password</div>
+                <div>✓ The <code style={{ color: '#ccc', background: '#111', padding: '1px 6px' }}>browser_auth.py</code> script (ask the app admin if you don&apos;t have it)</div>
+              </div>
+            </div>
+
+            <div style={{ borderTop: '1px solid #1a1a1a', paddingTop: '16px' }}>
+              <div style={{ marginBottom: '12px' }}>
+                <span className="amber">STEP 1 →</span> Open Terminal on your computer.
+                <div style={{ paddingLeft: '16px', fontSize: '13px', color: '#888' }}>
+                  Mac: Press <strong style={{ color: '#ccc' }}>⌘ + Space</strong>, type <strong style={{ color: '#ccc' }}>Terminal</strong>, press Enter.
+                  <br />Windows: Press <strong style={{ color: '#ccc' }}>Win + R</strong>, type <strong style={{ color: '#ccc' }}>cmd</strong>, press Enter.
+                </div>
+              </div>
+
+              <div style={{ marginBottom: '12px' }}>
+                <span className="amber">STEP 2 →</span> Navigate to the folder with the script and run it.
+                <div style={{ paddingLeft: '16px', fontSize: '13px', color: '#888', marginTop: '4px' }}>
+                  Copy and paste this command (adjust the path to wherever you saved the script):
+                </div>
+                <div style={{
+                  background: '#0d0d0d', border: '1px solid #2a2a2a', padding: '8px 12px',
+                  margin: '6px 0', fontFamily: 'var(--font-mono)', fontSize: '13px', color: '#aaa',
+                }}>
+                  python3 browser_auth.py
+                </div>
+              </div>
+
+              <div style={{ marginBottom: '12px' }}>
+                <span className="amber">STEP 3 →</span> A browser window will open automatically.
+                <div style={{ paddingLeft: '16px', fontSize: '13px', color: '#888' }}>
+                  Log in to your Garmin Connect account. Do not close the window.
+                  The script will say <strong style={{ color: '#ccc' }}>&quot;tokens saved&quot;</strong> when it&apos;s done.
+                </div>
+              </div>
+
+              <div style={{ marginBottom: '16px' }}>
+                <span className="amber">STEP 4 →</span> Copy your token file.
+                <div style={{ paddingLeft: '16px', fontSize: '13px', color: '#888', marginTop: '4px' }}>
+                  In the same Terminal window, run:
+                </div>
+                <div style={{
+                  background: '#0d0d0d', border: '1px solid #2a2a2a', padding: '8px 12px',
+                  margin: '6px 0', fontFamily: 'var(--font-mono)', fontSize: '13px', color: '#aaa',
+                }}>
+                  cat ~/.garmin_tokens/oauth2_token.json
+                </div>
+                <div style={{ paddingLeft: '16px', fontSize: '13px', color: '#888' }}>
+                  You&apos;ll see a block of text starting with <code style={{ color: '#ccc', background: '#111', padding: '1px 4px' }}>{`{`}</code> and ending with <code style={{ color: '#ccc', background: '#111', padding: '1px 4px' }}>{`}`}</code>.
+                  Select all of it and copy it.
+                </div>
+              </div>
+
+              <div style={{ marginBottom: '12px' }}>
+                <span className="amber">STEP 5 →</span> Paste it in the box below.
+                <div style={{ paddingLeft: '16px', fontSize: '13px', color: '#888', marginBottom: '8px' }}>
+                  It should look like:<br />
+                  <code style={{ color: '#555', fontSize: '12px' }}>
+                    {`{"access_token": "eyJ...", "token_type": "Bearer", ...}`}
+                  </code>
+                </div>
+                <textarea
+                  className="term-input"
+                  value={tokenText}
+                  onChange={e => { setTokenText(e.target.value); setSaveStatus(null) }}
+                  placeholder={'{"access_token": "eyJ...", "token_type": "Bearer", ...}'}
+                  style={{ width: '100%', minHeight: '90px', resize: 'vertical', fontFamily: 'var(--font-mono)', fontSize: '12px' }}
+                  disabled={saveStatus === 'ok'}
+                />
+                <div style={{ display: 'flex', gap: '8px', marginTop: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <button
+                    className="term-btn amber"
+                    onClick={saveTokens}
+                    disabled={!tokenText.trim() || saveStatus === 'saving' || saveStatus === 'ok'}
+                  >
+                    {saveStatus === 'saving' ? '[...]' : '[SAVE GARMIN TOKENS]'}
+                  </button>
+                  <button className="term-btn" style={{ fontSize: '12px' }} onClick={() => setChoice('skip')}>
+                    [SKIP FOR NOW]
+                  </button>
+                </div>
+                {saveStatus === 'error' && (
+                  <div className="red" style={{ fontSize: '13px', marginTop: '8px' }}>✗ {saveError}</div>
+                )}
+                {saveStatus === 'ok' && (
+                  <div className="status-ok" style={{ fontSize: '13px', marginTop: '8px' }}>
+                    ✓ Garmin connected. Tokens expire in ~30 days — re-run browser_auth.py when needed.
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '8px' }}>
+        <button className="term-btn" onClick={onBack}>[← BACK]</button>
+        <button
+          className="term-btn amber"
+          onClick={onDone}
+          disabled={choice === null}
+        >
+          {choice === 'skip' || !choice ? '[GO TO DASHBOARD →]' : saveStatus === 'ok' ? '[GO TO DASHBOARD →]' : '[GO TO DASHBOARD →]'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+export default function Onboarding() {
+  const navigate = useNavigate()
+  const { getAuthHeader } = useAuth()
+  const [step, setStep] = useState(null) // null while loading
+
+  // Determine which step to start from
+  useEffect(() => {
+    fetch('/api/onboard-status', { headers: getAuthHeader() })
+      .then(r => r.json())
+      .then(s => {
+        if (!s.hasApiKey) setStep(1)
+        else if (s.isNewUser) setStep(2)
+        else navigate('/', { replace: true }) // already done
+      })
+      .catch(() => setStep(1))
+  }, [])
+
+  if (step === null) return <div className="dim" style={{ padding: '32px' }}>LOADING...</div>
+
+  return (
+    <div style={{ maxWidth: '820px', margin: '0 auto', padding: '0 8px 40px' }}>
+      <div style={{ padding: '24px 0 16px' }}>
+        <div className="logo-title" style={{ fontSize: '48px' }}>CLAUDE CORRE</div>
+        <div className="header-tagline">// SETUP — STEP {step} OF 3</div>
+      </div>
+
+      <StepBar step={step} />
+
+      {step === 1 && (
+        <Step1ApiKey onDone={() => setStep(2)} />
+      )}
+      {step === 2 && (
+        <Step2Profile
+          onDone={() => setStep(3)}
+          onBack={() => setStep(1)}
+        />
+      )}
+      {step === 3 && (
+        <Step3Garmin
+          onDone={() => navigate('/', { replace: true })}
+          onBack={() => setStep(2)}
+        />
+      )}
+    </div>
+  )
+}
