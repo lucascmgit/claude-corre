@@ -255,8 +255,8 @@ app.get('/api/dashboard', requireAuth, (req, res) => {
   const row = getDb().prepare('SELECT content FROM training_logs WHERE user_id = ?').get(req.user.sub)
   const log = row?.content || NEW_USER_LOG
   const parsed = parseLogToDashboard(log)
-  const garmin = getUserGarminTokens(req.user.sub)
-  parsed.hasGarminTokens = !!garmin.oauth2?.access_token
+  const s = getSettings(req.user.sub)
+  parsed.hasGarminTokens = !!s.garmin_oauth2_token
   res.json(parsed)
 })
 
