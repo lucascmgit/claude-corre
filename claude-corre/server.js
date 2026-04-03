@@ -491,29 +491,173 @@ app.post('/api/upload-activity', requireAuth, async (req, res) => {
 
 // ── Push workout to Garmin ─────────────────────────────────────────────────────
 
-function buildEasyRunWorkout(name, distanceMeters, hrMin, hrMax) {
-  const date = new Date().toISOString().split('T')[0]
-  const TARGET_NONE = { workoutTargetTypeId: 1, workoutTargetTypeKey: 'no.target' }
-  const hrTarget = {
-    workoutTargetTypeId: 4,
-    workoutTargetTypeKey: 'heart.rate.between',
-    targetValueOne: String(hrMin),
-    targetValueTwo: String(hrMax),
+// ── Garmin workout builder ────────────────────────────────────────────────────
+// Supports: easy runs, tempo, intervals/repeats, pace targets, HR targets, cadence targets.
+// HR values use the +100 FIT-protocol offset required by connectapi.garmin.com.
+// Pace targets are stored as speed in m/s (Garmin uses speed.between).
+//
+// Intermediate schema expected from AI extraction:
+// {
+//   name: string,
+//   description: string,
+//   warmupSeconds: number,
+//   cooldownSeconds: number,
+//   main: Array<Step | Repeat>
+// }
+//
+// Step: { kind:"step", stepKey:"interval"|"rest"|"recovery"|"other",
+//         endKind:"distance"|"time"|"lapbutton", endValue: number,
+//         target: Target, description: string }
+// Repeat: { kind:"repeat", reps:number, steps: Step[] }
+// Target: { kind:"hr", low:bpm, high:bpm }
+//        | { kind:"pace", low:minKmFast, high:minKmSlow }   (decimal min/km)
+//        | { kind:"cadence", low:spm, high:spm }
+//        | { kind:"none" }
+
+const GARMIN_SPORT = { sportTypeId: 1, sportTypeKey: 'running' }
+const TARGET_NONE = { workoutTargetTypeId: 1, workoutTargetTypeKey: 'no.target' }
+const STEP_TYPE_MAP = {
+  warmup:   { stepTypeId: 1, stepTypeKey: 'warmup' },
+  cooldown: { stepTypeId: 2, stepTypeKey: 'cooldown' },
+  interval: { stepTypeId: 3, stepTypeKey: 'interval' },
+  rest:     { stepTypeId: 4, stepTypeKey: 'rest' },
+  recovery: { stepTypeId: 6, stepTypeKey: 'recovery' },
+  other:    { stepTypeId: 7, stepTypeKey: 'other' },
+}
+const END_CONDITION_MAP = {
+  time:      { conditionTypeId: 2, conditionTypeKey: 'time' },
+  distance:  { conditionTypeId: 3, conditionTypeKey: 'distance' },
+  lapbutton: { conditionTypeId: 1, conditionTypeKey: 'lap.button' },
+}
+
+function garminTarget(t) {
+  if (!t || t.kind === 'none') return TARGET_NONE
+  if (t.kind === 'hr') {
+    // Garmin Connect API uses BPM + 100 offset (matches FIT binary protocol)
+    return { workoutTargetTypeId: 4, workoutTargetTypeKey: 'heart.rate.between',
+      targetValueOne: t.low + 100, targetValueTwo: t.high + 100 }
   }
+  if (t.kind === 'pace') {
+    // pace in min/km → speed in m/s. low=faster pace, high=slower pace.
+    const speedHigh = parseFloat((1000 / (t.low * 60)).toFixed(4))  // faster = higher speed
+    const speedLow  = parseFloat((1000 / (t.high * 60)).toFixed(4)) // slower = lower speed
+    return { workoutTargetTypeId: 5, workoutTargetTypeKey: 'speed.between',
+      targetValueOne: speedLow, targetValueTwo: speedHigh }
+  }
+  if (t.kind === 'cadence') {
+    return { workoutTargetTypeId: 3, workoutTargetTypeKey: 'cadence.between',
+      targetValueOne: t.low, targetValueTwo: t.high }
+  }
+  return TARGET_NONE
+}
+
+function garminStep(s, order) {
   return {
-    sportType: { sportTypeId: 1, sportTypeKey: 'running' },
-    workoutName: `${name} [${date}]`,
-    workoutSegments: [{
-      segmentOrder: 1,
-      sportType: { sportTypeId: 1, sportTypeKey: 'running' },
-      workoutSteps: [
-        { type: 'ExecutableStepDTO', stepOrder: 1, stepType: { stepTypeId: 1, stepTypeKey: 'warmup' },   description: 'Walk 5 min to warm up',                          endCondition: { conditionTypeId: 2, conditionTypeKey: 'time' },     endConditionValue: 300,             targetType: TARGET_NONE },
-        { type: 'ExecutableStepDTO', stepOrder: 2, stepType: { stepTypeId: 3, stepTypeKey: 'interval' }, description: `Run — keep HR ${hrMin}-${hrMax} bpm`,            endCondition: { conditionTypeId: 3, conditionTypeKey: 'distance' }, endConditionValue: distanceMeters,  targetType: hrTarget },
-        { type: 'ExecutableStepDTO', stepOrder: 3, stepType: { stepTypeId: 2, stepTypeKey: 'cooldown' }, description: 'Walk 5 min to cool down',                         endCondition: { conditionTypeId: 2, conditionTypeKey: 'time' },     endConditionValue: 300,             targetType: TARGET_NONE },
-      ],
-    }],
+    type: 'ExecutableStepDTO',
+    stepOrder: order,
+    stepType: STEP_TYPE_MAP[s.stepKey] || STEP_TYPE_MAP.interval,
+    endCondition: END_CONDITION_MAP[s.endKind] || END_CONDITION_MAP.time,
+    endConditionValue: s.endValue || 0,
+    targetType: garminTarget(s.target),
+    description: s.description || '',
   }
 }
+
+function garminRepeat(r, order) {
+  return {
+    type: 'RepeatGroupDTO',
+    stepOrder: order,
+    stepType: { stepTypeId: 6, stepTypeKey: 'repeat' },
+    numberOfIterations: r.reps,
+    workoutSteps: r.steps.map((s, i) => garminStep(s, i + 1)),
+  }
+}
+
+function buildGarminWorkout(params) {
+  const date = new Date().toISOString().split('T')[0]
+  const steps = []
+  let order = 1
+
+  if ((params.warmupSeconds || 0) > 0) {
+    steps.push({
+      type: 'ExecutableStepDTO', stepOrder: order++,
+      stepType: STEP_TYPE_MAP.warmup,
+      endCondition: END_CONDITION_MAP.time, endConditionValue: params.warmupSeconds,
+      targetType: TARGET_NONE,
+      description: `Walk ${Math.round(params.warmupSeconds / 60)} min — warm up`,
+    })
+  }
+
+  for (const s of (params.main || [])) {
+    if (s.kind === 'repeat') steps.push(garminRepeat(s, order++))
+    else steps.push(garminStep(s, order++))
+  }
+
+  if ((params.cooldownSeconds || 0) > 0) {
+    steps.push({
+      type: 'ExecutableStepDTO', stepOrder: order++,
+      stepType: STEP_TYPE_MAP.cooldown,
+      endCondition: END_CONDITION_MAP.time, endConditionValue: params.cooldownSeconds,
+      targetType: TARGET_NONE,
+      description: `Walk ${Math.round(params.cooldownSeconds / 60)} min — cool down`,
+    })
+  }
+
+  return {
+    sportType: GARMIN_SPORT,
+    workoutName: `${(params.name || 'Run').slice(0, 40)} [${date}]`,
+    description: params.description || '',
+    workoutSegments: [{ segmentOrder: 1, sportType: GARMIN_SPORT, workoutSteps: steps }],
+  }
+}
+
+const WORKOUT_EXTRACTION_PROMPT = `You are a Garmin workout builder. Extract structured workout parameters from the coaching prescription below and respond with valid JSON only — no markdown, no explanation.
+
+OUTPUT SCHEMA:
+{
+  "name": "<short name, max 35 chars>",
+  "description": "<1-2 sentences for the watch display>",
+  "warmupSeconds": <number, default 300>,
+  "cooldownSeconds": <number, default 300>,
+  "main": [ <Step or Repeat> ]
+}
+
+Step object:
+{
+  "kind": "step",
+  "stepKey": "interval" | "rest" | "recovery" | "other",
+  "endKind": "distance" | "time" | "lapbutton",
+  "endValue": <meters for distance, seconds for time>,
+  "target": <Target>,
+  "description": "<what the athlete should do/feel>"
+}
+
+Repeat object (for intervals/repeats):
+{
+  "kind": "repeat",
+  "reps": <number>,
+  "steps": [ <Step>, ... ]
+}
+
+Target variants:
+  HR zone:   { "kind": "hr",      "low": <bpm>,             "high": <bpm>             }
+  Pace zone: { "kind": "pace",    "low": <fast min/km>,     "high": <slow min/km>     }
+  Cadence:   { "kind": "cadence", "low": <spm>,             "high": <spm>             }
+  None:      { "kind": "none" }
+
+RULES:
+- Use "hr" target when HR zones are mentioned (e.g. Z2, keep HR 130-142, aerobic)
+- Use "pace" target when pace is mentioned (e.g. 5:30/km → low:5.5, 6:00/km → low:6.0)
+- Use "none" for warmup, cooldown, recovery/walk steps
+- For run/walk intervals: use "repeat" with run step (interval) + walk step (recovery)
+- For continuous runs: single "step" with "distance" or "time" end condition
+- For tempo with sets: use "repeat"
+- Default warmup: 300s, cooldown: 300s unless prescription specifies otherwise
+- Recovery/walk steps use stepKey "recovery" and target "none"
+- Respond with JSON only
+
+PRESCRIPTION:
+`
 
 app.post('/api/push-workout', requireAuth, async (req, res) => {
   const apiKey = getUserApiKey(req.user.sub)
@@ -535,15 +679,28 @@ app.post('/api/push-workout', requireAuth, async (req, res) => {
 
   try {
     const extract = await client.messages.create({
-      model: 'claude-haiku-4-5', max_tokens: 200,
-      messages: [{ role: 'user', content: `Extract workout parameters from this prescription. Respond with JSON only:\n{"distanceMeters":<number>,"hrMin":<number>,"hrMax":<number>,"name":"<short name>"}\n\n${prescription}` }],
+      model: 'claude-haiku-4-5',
+      max_tokens: 1200,
+      messages: [{ role: 'user', content: WORKOUT_EXTRACTION_PROMPT + prescription }],
     })
 
-    let params
-    try { params = JSON.parse(extract.content[0].text.match(/\{[\s\S]*\}/)[0]) }
-    catch { params = { distanceMeters: 4500, hrMin: 130, hrMax: 142, name: 'Z2 Easy Run' } }
+    let workoutParams
+    try {
+      const raw = extract.content[0].text.match(/\{[\s\S]*\}/)?.[0]
+      workoutParams = JSON.parse(raw)
+    } catch {
+      // Fallback: safe default for a generic easy run
+      workoutParams = {
+        name: 'Easy Run',
+        description: 'Easy aerobic run. Stay in Z2.',
+        warmupSeconds: 300,
+        cooldownSeconds: 300,
+        main: [{ kind: 'step', stepKey: 'interval', endKind: 'distance', endValue: 4500,
+          target: { kind: 'hr', low: 130, high: 142 }, description: 'Keep HR 130-142 bpm (Z2)' }],
+      }
+    }
 
-    const workout = buildEasyRunWorkout(params.name, params.distanceMeters, params.hrMin, params.hrMax)
+    const workout = buildGarminWorkout(workoutParams)
 
     const garminRes = await fetch('https://connectapi.garmin.com/workout-service/workout', {
       method: 'POST',
@@ -553,7 +710,7 @@ app.post('/api/push-workout', requireAuth, async (req, res) => {
 
     if (!garminRes.ok) return res.status(502).json({ error: `Garmin API error ${garminRes.status}: ${await garminRes.text()}` })
     const result = await garminRes.json()
-    res.json({ workoutId: result.workoutId || result.workout_id })
+    res.json({ workoutId: result.workoutId || result.workout_id, workoutName: workout.workoutName })
   } catch (e) {
     res.status(500).json({ error: `Push failed: ${e.message}` })
   }

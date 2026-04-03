@@ -182,7 +182,7 @@ export default function Dashboard() {
       const d = await res.json()
       if (!res.ok) throw new Error(d.error || `HTTP ${res.status}`)
       setGarminStatus('ok')
-      setGarminMsg(`Workout pushed. ID: ${d.workoutId}`)
+      setGarminMsg(d.workoutName ? `"${d.workoutName}" pushed to Garmin.` : `Workout pushed. ID: ${d.workoutId}`)
     } catch (e) {
       setGarminStatus('error')
       setGarminMsg(e.message)
