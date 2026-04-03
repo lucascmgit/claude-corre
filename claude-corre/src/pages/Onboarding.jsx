@@ -514,13 +514,20 @@ function Step3Garmin({ onDone, onBack }) {
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '8px' }}>
         <button className="term-btn" onClick={onBack}>[← BACK]</button>
-        <button
-          className="term-btn amber"
-          onClick={onDone}
-          disabled={choice === null}
-        >
-          {choice === 'skip' || !choice ? '[GO TO DASHBOARD →]' : saveStatus === 'ok' ? '[GO TO DASHBOARD →]' : '[GO TO DASHBOARD →]'}
-        </button>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
+          {choice === 'yes' && saveStatus !== 'ok' && (
+            <div className="dim" style={{ fontSize: '12px' }}>
+              Save your tokens above, or click [SKIP FOR NOW] to continue without Garmin.
+            </div>
+          )}
+          <button
+            className="term-btn amber"
+            onClick={onDone}
+            disabled={choice === null || (choice === 'yes' && saveStatus !== 'ok')}
+          >
+            [GO TO DASHBOARD →]
+          </button>
+        </div>
       </div>
     </div>
   )

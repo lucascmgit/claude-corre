@@ -123,6 +123,8 @@ function requireAuth(req, res, next) {
   if (!auth?.startsWith('Bearer ')) return res.status(401).json({ error: 'Unauthorized' })
   try {
     req.user = jwt.verify(auth.slice(7), JWT_SECRET)
+    const exists = getDb().prepare('SELECT id FROM users WHERE id = ?').get(req.user.sub)
+    if (!exists) return res.status(401).json({ error: 'Account not found' })
     next()
   } catch {
     res.status(401).json({ error: 'Invalid or expired token' })
@@ -223,10 +225,12 @@ function parseLogToDashboard(log) {
     if (key && val) profile[key] = val
   })
 
-  // isNewUser only if profile is completely empty AND goal is unconfigured
+  // isNewUser if no real profile data AND no recognizable goal set
   const hasProfileData = Object.values(profile).some(v => v && v !== '—' && v !== '-')
-  const goalMatch = log.match(/\*\*Goal:\*\*\s*(.+)/)
-  const isNewUser = !hasProfileData && (!goalMatch || goalMatch[1]?.includes('Not yet configured'))
+  // Flexible goal regex: handles **Goal:** and **Goal**: and **Goal** :
+  const goalMatch = log.match(/\*\*Goal\*?\*?:?\s*\*?\*?:?\s*(.+)/) || log.match(/\*\*Goal:\*\*\s*(.+)/)
+  const goalSet = goalMatch && !goalMatch[1]?.includes('Not yet configured') && !goalMatch[1]?.includes('TBD')
+  const isNewUser = !hasProfileData && !goalSet
 
   const zones = parseTable(getSection(log, 'Training Zones'))
 
@@ -256,6 +260,7 @@ app.get('/api/dashboard', requireAuth, (req, res) => {
   const parsed = parseLogToDashboard(log)
   const s = getSettings(req.user.sub)
   parsed.hasGarminTokens = !!s.garmin_oauth2_token
+  parsed.garminTokenDaysOld = s.garmin_oauth2_saved_at ? Math.floor((Date.now() - s.garmin_oauth2_saved_at) / 86_400_000) : null
   res.json(parsed)
 })
 
@@ -268,6 +273,9 @@ app.get('/api/training-log', requireAuth, (req, res) => {
 
 app.post('/api/training-log', requireAuth, (req, res) => {
   const { content } = req.body
+  if (typeof content !== 'string' || content.trim().length < 50) {
+    return res.status(400).json({ error: 'Training log content is too short or invalid. Save cancelled to protect your data.' })
+  }
   getDb().prepare('INSERT OR REPLACE INTO training_logs (user_id, content, updated_at) VALUES (?, ?, ?)').run(req.user.sub, content, Date.now())
   res.json({ ok: true })
 })
@@ -292,26 +300,31 @@ function getUserGarminTokens(userId) {
   return result
 }
 
-app.get('/api/settings', requireAuth, (req, res) => {
-  const s = getSettings(req.user.sub)
-  res.json({
-    hasAnthropicKey: !!s.anthropic_api_key,
-    hasGarminOauth1: !!s.garmin_oauth1_token,
-    hasGarminOauth2: !!s.garmin_oauth2_token,
-    email: req.user.email,
-  })
-})
-
 app.post('/api/settings', requireAuth, (req, res) => {
   const { anthropicApiKey, garminOauth1Token, garminOauth2Token } = req.body
   const s = getSettings(req.user.sub)
+  const now = Date.now()
 
   const ak = anthropicApiKey !== undefined ? (anthropicApiKey ? encrypt(anthropicApiKey) : null) : s.anthropic_api_key
   const o1 = garminOauth1Token !== undefined ? (garminOauth1Token ? encrypt(garminOauth1Token) : null) : s.garmin_oauth1_token
   const o2 = garminOauth2Token !== undefined ? (garminOauth2Token ? encrypt(garminOauth2Token) : null) : s.garmin_oauth2_token
+  // Track when OAuth2 token was last saved (for expiry warnings — tokens last ~30 days)
+  const o2SavedAt = garminOauth2Token !== undefined && garminOauth2Token ? now : (s.garmin_oauth2_saved_at || null)
 
-  getDb().prepare('INSERT OR REPLACE INTO user_settings (user_id, anthropic_api_key, garmin_oauth1_token, garmin_oauth2_token, updated_at) VALUES (?, ?, ?, ?, ?)').run(req.user.sub, ak, o1, o2, Date.now())
+  getDb().prepare('INSERT OR REPLACE INTO user_settings (user_id, anthropic_api_key, garmin_oauth1_token, garmin_oauth2_token, garmin_oauth2_saved_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)').run(req.user.sub, ak, o1, o2, o2SavedAt, now)
   res.json({ ok: true })
+})
+
+app.get('/api/settings', requireAuth, (req, res) => {
+  const s = getSettings(req.user.sub)
+  const daysOld = s.garmin_oauth2_saved_at ? Math.floor((Date.now() - s.garmin_oauth2_saved_at) / 86_400_000) : null
+  res.json({
+    hasAnthropicKey: !!s.anthropic_api_key,
+    hasGarminOauth1: !!s.garmin_oauth1_token,
+    hasGarminOauth2: !!s.garmin_oauth2_token,
+    garminTokenDaysOld: daysOld,
+    email: req.user.email,
+  })
 })
 
 // ── Onboarding helpers ────────────────────────────────────────────────────────
@@ -348,10 +361,25 @@ app.post('/api/validate-key', requireAuth, async (req, res) => {
   }
 })
 
+// ── Chat history ───────────────────────────────────────────────────────────────
+
+app.get('/api/chat-history', requireAuth, (req, res) => {
+  const row = getDb().prepare('SELECT messages FROM chat_history WHERE user_id = ?').get(req.user.sub)
+  res.json({ messages: row ? JSON.parse(row.messages) : [] })
+})
+
+app.post('/api/chat-history', requireAuth, (req, res) => {
+  const { messages } = req.body
+  if (!Array.isArray(messages)) return res.status(400).json({ error: 'messages must be an array' })
+  const trimmed = messages.slice(-50) // store at most 50 messages
+  getDb().prepare('INSERT OR REPLACE INTO chat_history (user_id, messages, updated_at) VALUES (?, ?, ?)').run(req.user.sub, JSON.stringify(trimmed), Date.now())
+  res.json({ ok: true })
+})
+
 // ── Coach chat ─────────────────────────────────────────────────────────────────
 
 app.post('/api/ask-coach', requireAuth, async (req, res) => {
-  if (rateLimit(`coach:${req.user.sub}`, 20, 60_000)) return res.status(429).json({ answer: 'Rate limit: max 20 messages per minute.' })
+  if (rateLimit(`coach:${req.user.sub}`, 20, 60_000)) return res.status(429).json({ error: 'Rate limit: max 20 messages per minute. Wait a moment and try again.' })
   const apiKey = getUserApiKey(req.user.sub)
   if (!apiKey) return res.status(503).json({ answer: 'No Anthropic API key configured. Go to [SETTINGS] and add your API key.' })
 
@@ -419,29 +447,45 @@ app.post('/api/upload-activity', requireAuth, async (req, res) => {
   const log = logRow?.content || NEW_USER_LOG
   const client = new Anthropic({ apiKey })
 
+  // Stream via SSE to avoid Railway 60s proxy timeout
+  res.setHeader('Content-Type', 'text/event-stream')
+  res.setHeader('Cache-Control', 'no-cache')
+  res.setHeader('X-Accel-Buffering', 'no')
+  function send(obj) { res.write(`data: ${JSON.stringify(obj)}\n\n`) }
+
   try {
-    const response = await client.messages.create({
+    const stream = client.messages.stream({
       model: 'claude-sonnet-4-5',
-      max_tokens: 4096,
+      max_tokens: 8192,
       system: UPLOAD_SYSTEM_PROMPT + '\n\n---\nCURRENT TRAINING LOG:\n' + log,
       messages: [{ role: 'user', content: `Analyze this Garmin CSV activity (filename: ${filename}):\n\n\`\`\`csv\n${csv.slice(0, 8000)}\n\`\`\`` }],
     })
 
-    const text = response.content[0]?.text || ''
-    const prescMatch = text.match(/## NEXT PRESCRIBED SESSION([\s\S]*?)(?=##|$)/)
-    const logMatch = text.match(/```(?:markdown)?\s*\r?\n([\s\S]*?)```/)
-    const truncatedMatch = !logMatch && text.match(/```(?:markdown)?\s*\r?\n([\s\S]+)$/)
+    let fullText = ''
+    for await (const event of stream) {
+      if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+        fullText += event.delta.text
+        send({ chunk: event.delta.text })
+      }
+    }
+
+    const prescMatch = fullText.match(/## NEXT PRESCRIBED SESSION([\s\S]*?)(?=\n##|$)/)
+    const logMatch = fullText.match(/```(?:markdown)?\s*\r?\n([\s\S]*?)```/)
+    const truncatedMatch = !logMatch && fullText.match(/```(?:markdown)?\s*\r?\n([\s\S]+)$/)
     const extracted = logMatch?.[1] || truncatedMatch?.[1]
     if (extracted) {
       getDb().prepare('INSERT OR REPLACE INTO training_logs (user_id, content, updated_at) VALUES (?, ?, ?)').run(req.user.sub, extracted.trim(), Date.now())
     }
 
-    res.json({
-      analysis: text.replace(/```(?:markdown)?\s*\r?\n[\s\S]*?```/g, '').replace(/```(?:markdown)?\s*\r?\n[\s\S]+$/, '').trim(),
+    send({
+      done: true,
       prescription: prescMatch ? prescMatch[0].trim() : '',
+      logUpdated: !!(logMatch || truncatedMatch),
     })
+    res.end()
   } catch (e) {
-    res.status(500).json({ error: e.message })
+    send({ error: e.message })
+    res.end()
   }
 })
 
@@ -489,26 +533,127 @@ app.post('/api/push-workout', requireAuth, async (req, res) => {
   if (!prescription || typeof prescription !== 'string') return res.status(400).json({ error: 'No prescription provided.' })
   const client = new Anthropic({ apiKey })
 
-  const extract = await client.messages.create({
-    model: 'claude-haiku-4-5', max_tokens: 200,
-    messages: [{ role: 'user', content: `Extract workout parameters from this prescription. Respond with JSON only:\n{"distanceMeters":<number>,"hrMin":<number>,"hrMax":<number>,"name":"<short name>"}\n\n${prescription}` }],
-  })
+  try {
+    const extract = await client.messages.create({
+      model: 'claude-haiku-4-5', max_tokens: 200,
+      messages: [{ role: 'user', content: `Extract workout parameters from this prescription. Respond with JSON only:\n{"distanceMeters":<number>,"hrMin":<number>,"hrMax":<number>,"name":"<short name>"}\n\n${prescription}` }],
+    })
 
-  let params
-  try { params = JSON.parse(extract.content[0].text.match(/\{[\s\S]*\}/)[0]) }
-  catch { params = { distanceMeters: 4500, hrMin: 130, hrMax: 142, name: 'Z2 Easy Run' } }
+    let params
+    try { params = JSON.parse(extract.content[0].text.match(/\{[\s\S]*\}/)[0]) }
+    catch { params = { distanceMeters: 4500, hrMin: 130, hrMax: 142, name: 'Z2 Easy Run' } }
 
-  const workout = buildEasyRunWorkout(params.name, params.distanceMeters, params.hrMin, params.hrMax)
+    const workout = buildEasyRunWorkout(params.name, params.distanceMeters, params.hrMin, params.hrMax)
 
-  const garminRes = await fetch('https://connectapi.garmin.com/workout-service/workout', {
-    method: 'POST',
-    headers: { 'Authorization': `Bearer ${garminOauth2.access_token}`, 'Content-Type': 'application/json', 'User-Agent': 'GCM-iOS-5.7.2.1' },
-    body: JSON.stringify(workout),
-  })
+    const garminRes = await fetch('https://connectapi.garmin.com/workout-service/workout', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${garminOauth2.access_token}`, 'Content-Type': 'application/json', 'User-Agent': 'GCM-iOS-5.7.2.1' },
+      body: JSON.stringify(workout),
+    })
 
-  if (!garminRes.ok) return res.status(502).json({ error: `Garmin API error ${garminRes.status}: ${await garminRes.text()}` })
-  const result = await garminRes.json()
-  res.json({ workoutId: result.workoutId || result.workout_id })
+    if (!garminRes.ok) return res.status(502).json({ error: `Garmin API error ${garminRes.status}: ${await garminRes.text()}` })
+    const result = await garminRes.json()
+    res.json({ workoutId: result.workoutId || result.workout_id })
+  } catch (e) {
+    res.status(500).json({ error: `Push failed: ${e.message}` })
+  }
+})
+
+// ── Garmin activity sync ───────────────────────────────────────────────────────
+
+app.get('/api/garmin-activities', requireAuth, async (req, res) => {
+  const s = getSettings(req.user.sub)
+  if (!s.garmin_oauth2_token) return res.status(503).json({ error: 'Garmin tokens not configured.' })
+  let garminOauth2
+  try { garminOauth2 = JSON.parse(decrypt(s.garmin_oauth2_token)) } catch (e) {
+    return res.status(503).json({ error: `Token decrypt failed: ${e.message}` })
+  }
+
+  try {
+    const r = await fetch('https://connectapi.garmin.com/activitylist-service/activities/search/activities?start=0&limit=10&activityType=running', {
+      headers: { 'Authorization': `Bearer ${garminOauth2.access_token}`, 'User-Agent': 'GCM-iOS-5.7.2.1' },
+    })
+    if (!r.ok) return res.status(502).json({ error: `Garmin API error ${r.status}: ${await r.text()}` })
+    const list = await r.json()
+    const activities = (Array.isArray(list) ? list : list.activityList || []).map(a => ({
+      activityId: a.activityId,
+      name: a.activityName || 'Run',
+      date: a.startTimeLocal?.split('T')[0] || '—',
+      distance: a.distance ? `${(a.distance / 1000).toFixed(2)} km` : '—',
+      duration: a.duration ? `${Math.floor(a.duration / 60)}:${String(Math.round(a.duration % 60)).padStart(2, '0')}` : '—',
+      avgHR: a.averageHR ? Math.round(a.averageHR) : null,
+    }))
+    res.json({ activities })
+  } catch (e) {
+    res.status(500).json({ error: `Sync failed: ${e.message}` })
+  }
+})
+
+app.post('/api/import-garmin', requireAuth, async (req, res) => {
+  const apiKey = getUserApiKey(req.user.sub)
+  if (!apiKey) return res.status(503).json({ error: 'No Anthropic API key configured.' })
+
+  const s = getSettings(req.user.sub)
+  if (!s.garmin_oauth2_token) return res.status(503).json({ error: 'Garmin tokens not configured.' })
+  let garminOauth2
+  try { garminOauth2 = JSON.parse(decrypt(s.garmin_oauth2_token)) } catch (e) {
+    return res.status(503).json({ error: `Token decrypt failed: ${e.message}` })
+  }
+
+  const { activityId, activityName } = req.body
+  if (!activityId) return res.status(400).json({ error: 'activityId required' })
+
+  // Stream via SSE
+  res.setHeader('Content-Type', 'text/event-stream')
+  res.setHeader('Cache-Control', 'no-cache')
+  res.setHeader('X-Accel-Buffering', 'no')
+  function send(obj) { res.write(`data: ${JSON.stringify(obj)}\n\n`) }
+
+  try {
+    // Download CSV from Garmin
+    const csvRes = await fetch(`https://connectapi.garmin.com/download-service/export/csv/activity/${activityId}`, {
+      headers: { 'Authorization': `Bearer ${garminOauth2.access_token}`, 'User-Agent': 'GCM-iOS-5.7.2.1' },
+    })
+    if (!csvRes.ok) {
+      send({ error: `Could not download activity CSV from Garmin (${csvRes.status}). Try downloading manually and using [UPLOAD RUN] instead.` })
+      return res.end()
+    }
+    const csv = await csvRes.text()
+
+    const logRow = getDb().prepare('SELECT content FROM training_logs WHERE user_id = ?').get(req.user.sub)
+    const log = logRow?.content || NEW_USER_LOG
+    const client = new Anthropic({ apiKey })
+    const filename = `${activityName || 'activity'}_${activityId}.csv`
+
+    const stream = client.messages.stream({
+      model: 'claude-sonnet-4-5',
+      max_tokens: 8192,
+      system: UPLOAD_SYSTEM_PROMPT + '\n\n---\nCURRENT TRAINING LOG:\n' + log,
+      messages: [{ role: 'user', content: `Analyze this Garmin CSV activity (filename: ${filename}):\n\n\`\`\`csv\n${csv.slice(0, 8000)}\n\`\`\`` }],
+    })
+
+    let fullText = ''
+    for await (const event of stream) {
+      if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+        fullText += event.delta.text
+        send({ chunk: event.delta.text })
+      }
+    }
+
+    const prescMatch = fullText.match(/## NEXT PRESCRIBED SESSION([\s\S]*?)(?=\n##|$)/)
+    const logMatch = fullText.match(/```(?:markdown)?\s*\r?\n([\s\S]*?)```/)
+    const truncatedMatch = !logMatch && fullText.match(/```(?:markdown)?\s*\r?\n([\s\S]+)$/)
+    const extracted = logMatch?.[1] || truncatedMatch?.[1]
+    if (extracted) {
+      getDb().prepare('INSERT OR REPLACE INTO training_logs (user_id, content, updated_at) VALUES (?, ?, ?)').run(req.user.sub, extracted.trim(), Date.now())
+    }
+
+    send({ done: true, prescription: prescMatch ? prescMatch[0].trim() : '', logUpdated: !!(logMatch || truncatedMatch) })
+    res.end()
+  } catch (e) {
+    send({ error: e.message })
+    res.end()
+  }
 })
 
 // ── Serve frontend ─────────────────────────────────────────────────────────────

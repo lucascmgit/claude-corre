@@ -32,10 +32,24 @@ export function initDb() {
       anthropic_api_key TEXT,
       garmin_oauth1_token TEXT,
       garmin_oauth2_token TEXT,
+      garmin_oauth2_saved_at INTEGER,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS chat_history (
+      user_id TEXT PRIMARY KEY,
+      messages TEXT NOT NULL,
       updated_at INTEGER NOT NULL,
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
   `)
+
+  // Migrate: add garmin_oauth2_saved_at column if it doesn't exist yet
+  const cols = db.pragma('table_info(user_settings)').map(c => c.name)
+  if (!cols.includes('garmin_oauth2_saved_at')) {
+    db.exec('ALTER TABLE user_settings ADD COLUMN garmin_oauth2_saved_at INTEGER')
+  }
 
   console.log(`Database ready: ${DB_PATH}`)
   return db

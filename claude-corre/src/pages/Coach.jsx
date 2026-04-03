@@ -27,18 +27,34 @@ function ThinkingIndicator() {
   )
 }
 
+const WELCOME_MSG = {
+  role: 'assistant',
+  content: 'COACH TERMINAL READY.\n\nType a question or use a quick prompt below. I have your full training log loaded.\n\nRemember: I will not sugarcoat. Data governs.',
+}
+
 export default function Coach() {
   const { getAuthHeader } = useAuth()
-  const [messages, setMessages] = useState([
-    {
-      role: 'assistant',
-      content: 'COACH TERMINAL READY.\n\nType a question or use a quick prompt below. I have your full training log loaded.\n\nRemember: I will not sugarcoat. Data governs.'
-    }
-  ])
+  const [messages, setMessages] = useState([WELCOME_MSG])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [lastLogStatus, setLastLogStatus] = useState(null) // 'saved' | 'not-saved' | null
   const bottomRef = useRef()
+  const historyLoaded = useRef(false)
+
+  // Load persisted chat history on first mount
+  useEffect(() => {
+    if (historyLoaded.current) return
+    historyLoaded.current = true
+    fetch('/api/chat-history', { headers: getAuthHeader() })
+      .then(r => r.json())
+      .then(d => {
+        if (d.messages && d.messages.length > 0) {
+          // Restore up to 20 messages for display (oldest first, keep welcome at top)
+          setMessages([WELCOME_MSG, ...d.messages.slice(-20)])
+        }
+      })
+      .catch(() => {})
+  }, [])
 
   // Only scroll into view when user sends a message (not when coach answers)
   const prevLengthRef = useRef(messages.length)
@@ -69,8 +85,9 @@ export default function Coach() {
         body: JSON.stringify({ question: q, history: messages.slice(-6) })
       })
       if (!res.ok) {
-        const errText = await res.text().catch(() => '')
-        throw new Error(`Server error ${res.status}${errText ? ': ' + errText : ''}`)
+        let msg = `Server error ${res.status}`
+        try { const d = await res.json(); if (d.error || d.answer) msg = d.error || d.answer } catch {}
+        throw new Error(msg)
       }
 
       const reader = res.body.getReader()
@@ -108,6 +125,16 @@ export default function Coach() {
           }
         }
       }
+      // Persist history (skip the welcome message at index 0)
+      setMessages(prev => {
+        const toSave = prev.slice(1).filter(m => m.content) // exclude welcome + empty bubbles
+        fetch('/api/chat-history', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+          body: JSON.stringify({ messages: toSave }),
+        }).catch(() => {})
+        return prev
+      })
     } catch (e) {
       setMessages(prev => [...prev.slice(0, -1), { role: 'assistant', content: `[ERROR: ${e.message}]` }])
     }

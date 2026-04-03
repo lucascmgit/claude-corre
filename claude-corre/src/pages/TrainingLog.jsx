@@ -18,7 +18,21 @@ export default function TrainingLog() {
       .catch(() => setLoading(false))
   }, [])
 
+  function downloadLog() {
+    const blob = new Blob([content], { type: 'text/markdown' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `training-log-${new Date().toISOString().split('T')[0]}.md`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   async function save() {
+    if (!draft.trim() || draft.trim().length < 50) {
+      setStatus('error')
+      return
+    }
     setStatus('saving')
     try {
       const res = await fetch('/api/training-log', {
@@ -26,7 +40,10 @@ export default function TrainingLog() {
         headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
         body: JSON.stringify({ content: draft })
       })
-      if (!res.ok) throw new Error('Save failed')
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        throw new Error(d.error || 'Save failed')
+      }
       setContent(draft)
       setEditing(false)
       setStatus('saved')
@@ -46,21 +63,26 @@ export default function TrainingLog() {
           <span>TRAINING LOG</span>
           <div style={{display:'flex', gap:'8px', alignItems:'center'}}>
             {status === 'saved' && <span className="status-ok">✓ SAVED</span>}
-            {status === 'error' && <span className="red">✗ ERROR</span>}
+            {status === 'error' && <span className="red">✗ ERROR — content too short or invalid</span>}
             {editing
               ? <>
                   <button className="term-btn" style={{fontSize:'11px', padding:'2px 10px'}} onClick={save}>
                     [SAVE]
                   </button>
                   <button className="term-btn" style={{fontSize:'11px', padding:'2px 10px'}}
-                    onClick={() => { setEditing(false); setDraft('') }}>
+                    onClick={() => { setEditing(false); setDraft(''); setStatus('idle') }}>
                     [CANCEL]
                   </button>
                 </>
-              : <button className="term-btn" style={{fontSize:'11px', padding:'2px 10px'}}
-                  onClick={() => { setEditing(true); setDraft(content) }}>
-                  [EDIT]
-                </button>
+              : <>
+                  <button className="term-btn" style={{fontSize:'11px', padding:'2px 10px'}}
+                    onClick={() => { setEditing(true); setDraft(content) }}>
+                    [EDIT]
+                  </button>
+                  <button className="term-btn" style={{fontSize:'11px', padding:'2px 10px'}} onClick={downloadLog}>
+                    [DOWNLOAD .MD]
+                  </button>
+                </>
             }
           </div>
         </div>
