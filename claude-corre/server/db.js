@@ -1,9 +1,13 @@
 import Database from 'better-sqlite3'
 import { join, dirname } from 'path'
+import { mkdirSync } from 'fs'
 import { fileURLToPath } from 'url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const DB_PATH = process.env.DB_PATH || join(__dirname, '..', 'data', 'claude-corre.db')
+
+// Ensure data directory exists (required in fresh containers)
+mkdirSync(dirname(DB_PATH), { recursive: true })
 
 let db
 
