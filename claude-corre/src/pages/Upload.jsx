@@ -3,141 +3,6 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useAuth } from '../context/AuthContext.jsx'
 
-// macOS .command file — double-click → Terminal opens, runs garth refresh inline,
-// copies resulting token JSON to clipboard via pbcopy, then waits for Enter.
-const COMMAND_SCRIPT = `#!/bin/bash
-python3 - <<'PYEOF'
-import sys
-try:
-    import garth, json, subprocess
-    from garth import sso
-    c = garth.Client()
-    c.load("~/.garth")
-    fresh = sso.exchange(c.oauth1_token, c)
-    c.oauth2_token = fresh
-    c.dump("~/.garth")
-    out = json.dumps(fresh.dict)
-    subprocess.run(["pbcopy"], input=out.encode(), check=True)
-    print(out)
-    print("")
-    print("Token refreshed and copied to clipboard!")
-    print("Switch back to the app and paste it, then click SAVE.")
-except ImportError:
-    print("garth not installed. Run: pip install garth", file=sys.stderr)
-    sys.exit(1)
-except Exception as e:
-    print(f"Error: {e}", file=sys.stderr)
-    sys.exit(1)
-PYEOF
-echo ""
-read -p "Press Enter to close this window..."
-`
-
-function downloadCommandFile() {
-  const blob = new Blob([COMMAND_SCRIPT], { type: 'application/octet-stream' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = 'refresh_garmin.command'
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
-  URL.revokeObjectURL(url)
-}
-
-// Inline wizard shown when a Garmin push returns 401.
-// onSaved() is called after the fresh token is saved — caller retries the push.
-function TokenRenewWizard({ onSaved, getAuthHeader }) {
-  const [tokenText, setTokenText] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [err, setErr] = useState('')
-  const [downloaded, setDownloaded] = useState(false)
-  const [copied, setCopied] = useState(false)
-
-  function handleDownload() {
-    downloadCommandFile()
-    setDownloaded(true)
-  }
-
-  function copyCommand() {
-    navigator.clipboard.writeText('python3 refresh_token.py')
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
-  }
-
-  async function save() {
-    setSaving(true)
-    setErr('')
-    try {
-      let token
-      try { token = JSON.parse(tokenText.trim()) } catch { throw new Error('Not valid JSON — paste the full output.') }
-      if (!token.access_token) throw new Error('No access_token found — paste the full JSON output.')
-      const res = await fetch('/api/settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
-        body: JSON.stringify({ garminOauth2Token: JSON.stringify(token) }),
-      })
-      if (!res.ok) throw new Error('Failed to save. Try again.')
-      onSaved()
-    } catch (e) {
-      setErr(e.message)
-      setSaving(false)
-    }
-  }
-
-  return (
-    <div style={{ marginTop: '12px', border: '1px solid #555', padding: '14px', fontSize: '13px' }}>
-      <div className="amber" style={{ fontWeight: 'bold', marginBottom: '8px' }}>⚠ GARMIN TOKEN EXPIRED</div>
-      <div style={{ color: '#888', marginBottom: '14px', fontSize: '12px' }}>
-        Garmin tokens last ~1 hour. Refresh takes 10 seconds.
-      </div>
-
-      <div style={{ marginBottom: '14px' }}>
-        <div style={{ color: '#ccc', marginBottom: '6px', fontWeight: 'bold' }}>
-          STEP 1 — {downloaded ? '✓ File downloaded. Double-click it.' : 'Click to download & run:'}
-        </div>
-        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
-          <button className="btn" onClick={handleDownload} style={{ fontSize: '12px' }}>
-            {downloaded ? '[↓ RE-DOWNLOAD]' : '[↓ DOWNLOAD refresh_garmin.command]'}
-          </button>
-          <button className="btn-dim" onClick={copyCommand} style={{ fontSize: '12px' }}>
-            {copied ? '[✓ COPIED]' : '[COPY COMMAND INSTEAD]'}
-          </button>
-        </div>
-        {downloaded && (
-          <div style={{ color: '#aaa', fontSize: '12px', marginTop: '6px' }}>
-            Go to Downloads → double-click <strong>refresh_garmin.command</strong> → Terminal opens → token copied to clipboard automatically
-          </div>
-        )}
-        {!downloaded && (
-          <div style={{ color: '#666', fontSize: '11px', marginTop: '5px' }}>
-            Downloads a macOS script. Double-click it → Terminal opens → token lands in your clipboard.
-          </div>
-        )}
-      </div>
-
-      <div>
-        <div style={{ color: '#ccc', marginBottom: '6px', fontWeight: 'bold' }}>STEP 2 — Paste token here (⌘V):</div>
-        <textarea
-          value={tokenText}
-          onChange={e => setTokenText(e.target.value)}
-          placeholder='{"access_token": "...", "refresh_token": "..."}'
-          autoFocus={downloaded}
-          style={{ width: '100%', height: '70px', background: '#111', color: '#0f0', border: '1px solid #333', padding: '8px', fontSize: '11px', fontFamily: 'monospace', boxSizing: 'border-box', resize: 'vertical' }}
-        />
-        {err && <div style={{ color: '#f55', fontSize: '12px', marginTop: '4px' }}>✗ {err}</div>}
-        <button
-          className="btn"
-          onClick={save}
-          disabled={saving || !tokenText.trim()}
-          style={{ marginTop: '8px', fontSize: '12px' }}
-        >
-          {saving ? '[SAVING...]' : '[SAVE & RETRY PUSH →]'}
-        </button>
-      </div>
-    </div>
-  )
-}
 
 const SPINNER_FRAMES = ['[/]', '[-]', '[\\]', '[|]']
 
@@ -181,16 +46,12 @@ function GarminSync({ hasGarminTokens, onAnalysisResult }) {
   const [output, setOutput] = useState('')
   const [prescription, setPrescription] = useState('')
   const [garminStatus, setGarminStatus] = useState(null)
-  const [renewMode, setRenewMode] = useState(false)
-
   async function loadActivities() {
     setLoadingList(true)
     setListError('')
-    setRenewMode(false)
     try {
       const res = await fetch('/api/garmin-activities', { headers: getAuthHeader() })
       const d = await res.json()
-      if (!res.ok && res.status === 401) { setRenewMode(true); setLoadingList(false); return }
       if (!res.ok) throw new Error(d.error || `Error ${res.status}`)
       setActivities(d.activities || [])
     } catch (e) {
@@ -243,7 +104,6 @@ function GarminSync({ hasGarminTokens, onAnalysisResult }) {
 
   async function pushToGarmin() {
     if (!prescription) return
-    setRenewMode(false)
     setGarminStatus('pushing')
     try {
       const res = await fetch('/api/push-workout', {
@@ -252,7 +112,6 @@ function GarminSync({ hasGarminTokens, onAnalysisResult }) {
         body: JSON.stringify({ prescription }),
       })
       const data = await res.json()
-      if (!res.ok && res.status === 401) { setGarminStatus(null); setRenewMode(true); return }
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
       setGarminStatus('pushed')
       setOutput(prev => prev + `\n\n> WORKOUT PUSHED TO GARMIN CONNECT\n> "${data.workoutName || data.workoutId}"\n> Sync via Bluetooth to push to watch.`)
@@ -285,13 +144,12 @@ function GarminSync({ hasGarminTokens, onAnalysisResult }) {
             Fetch your recent runs directly from Garmin — no CSV export needed.
           </div>
 
-          {!activities && !renewMode && (
+          {!activities && (
             <button className="term-btn amber" onClick={loadActivities} disabled={loadingList}>
               {loadingList ? '[LOADING...]' : '[FETCH RECENT RUNS]'}
             </button>
           )}
           {listError && <div className="red" style={{ fontSize: '13px', marginTop: '8px' }}>✗ {listError}</div>}
-          {renewMode && <TokenRenewWizard getAuthHeader={getAuthHeader} onSaved={loadActivities} />}
 
           {activities && activities.length === 0 && (
             <div className="dim" style={{ fontSize: '13px' }}>No recent running activities found in Garmin Connect.</div>
@@ -360,7 +218,7 @@ function GarminSync({ hasGarminTokens, onAnalysisResult }) {
             <div className="coach-output" style={{ marginBottom: '12px' }}>
               <ReactMarkdown remarkPlugins={[remarkGfm]}>{prescription}</ReactMarkdown>
             </div>
-            {hasGarminTokens && garminStatus !== 'pushed' && !renewMode && (
+            {hasGarminTokens && garminStatus !== 'pushed' && (
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                 <button
                   className="term-btn amber"
@@ -371,9 +229,6 @@ function GarminSync({ hasGarminTokens, onAnalysisResult }) {
                 </button>
                 {garminStatus === 'error' && <span className="red" style={{ fontSize: '13px' }}>✗ Push failed — check error above</span>}
               </div>
-            )}
-            {renewMode && (
-              <TokenRenewWizard getAuthHeader={getAuthHeader} onSaved={pushToGarmin} />
             )}
             {garminStatus === 'pushed' && <div className="status-ok" style={{ fontSize: '13px' }}>✓ Workout on Garmin — sync via Bluetooth.</div>}
           </div>
@@ -394,7 +249,6 @@ export default function Upload() {
   const [logSaved, setLogSaved] = useState(false)
   const [garminStatus, setGarminStatus] = useState(null)
   const [hasGarminTokens, setHasGarminTokens] = useState(false)
-  const [renewMode, setRenewMode] = useState(false)
   const inputRef = useRef()
 
   useEffect(() => {
@@ -467,7 +321,6 @@ export default function Upload() {
 
   async function pushToGarmin() {
     if (!prescription) return
-    setRenewMode(false)
     setGarminStatus('pushing')
     try {
       const res = await fetch('/api/push-workout', {
@@ -476,7 +329,6 @@ export default function Upload() {
         body: JSON.stringify({ prescription }),
       })
       const data = await res.json()
-      if (!res.ok && res.status === 401) { setGarminStatus(null); setRenewMode(true); return }
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
       setGarminStatus('pushed')
       setOutput(prev => prev + `\n\n> WORKOUT PUSHED TO GARMIN CONNECT\n> "${data.workoutName || data.workoutId}"\n> Sync via Bluetooth to push to watch.`)
@@ -550,7 +402,7 @@ export default function Upload() {
             <div className="coach-output" style={{ marginBottom: '12px' }}>
               <ReactMarkdown remarkPlugins={[remarkGfm]}>{prescription}</ReactMarkdown>
             </div>
-            {hasGarminTokens && garminStatus !== 'pushed' && !renewMode && (
+            {hasGarminTokens && garminStatus !== 'pushed' && (
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                 <button
                   className="term-btn amber"
@@ -561,9 +413,6 @@ export default function Upload() {
                 </button>
                 {garminStatus === 'error' && <span className="red" style={{ fontSize: '13px' }}>✗ Push failed — see error above</span>}
               </div>
-            )}
-            {renewMode && (
-              <TokenRenewWizard getAuthHeader={getAuthHeader} onSaved={pushToGarmin} />
             )}
             {!hasGarminTokens && (
               <div style={{ fontSize: '12px', color: '#444' }}>
