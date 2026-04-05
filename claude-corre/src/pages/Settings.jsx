@@ -9,7 +9,6 @@ export default function Settings() {
   const [msg, setMsg] = useState('')
 
   const [anthropicKey, setAnthropicKey] = useState('')
-  const [garminOauth1, setGarminOauth1] = useState('')
   const [garminOauth2, setGarminOauth2] = useState('')
 
   useEffect(() => {
@@ -34,7 +33,6 @@ export default function Settings() {
       setSettings(updated)
       setMsg(`${field} saved.`)
       if (field === 'anthropicApiKey') setAnthropicKey('')
-      if (field === 'garminOauth1Token') setGarminOauth1('')
       if (field === 'garminOauth2Token') setGarminOauth2('')
     } catch (e) {
       setMsg(`ERROR: ${e.message}`)
@@ -119,67 +117,54 @@ export default function Settings() {
       {/* Garmin tokens */}
       <div className="term-box">
         <div className="term-box-title">
-          <span>GARMIN TOKENS</span>
-          <span className="dim" style={{ fontSize: '11px' }}>
-            OAuth2: <Status on={settings?.hasGarminOauth2} /> OAuth1: <Status on={settings?.hasGarminOauth1} />
-          </span>
+          <span>GARMIN TOKEN</span>
+          <Status on={settings?.hasGarminOauth2} />
         </div>
         <div className="term-box-body">
-          <div className="dim" style={{ fontSize: '12px', marginBottom: '10px' }}>
-            Optional — required only for pushing workouts to your Garmin watch.
-            Run <code>python3 browser_auth.py</code> locally, then paste the contents of{' '}
-            <code>~/.garmin_tokens/oauth2_token.json</code> and <code>oauth1_token.json</code> below.
-            Tokens are valid ~30 days.
+          <div className="dim" style={{ fontSize: '12px', marginBottom: '14px' }}>
+            Required to push workouts to your watch and fetch past runs.<br />
+            Get a token by running one of these in Terminal:
           </div>
 
-          <div style={{ marginBottom: '10px' }}>
-            <div className="dim" style={{ fontSize: '11px', marginBottom: '4px' }}>
-              OAuth2 TOKEN (contents of oauth2_token.json)
+          <div style={{ marginBottom: '10px', fontSize: '12px' }}>
+            <div style={{ color: '#aaa', marginBottom: '4px' }}>
+              <span className="amber">Option A</span> — normal login (email + password):
             </div>
-            <textarea
-              className="term-input"
-              value={garminOauth2}
-              onChange={e => setGarminOauth2(e.target.value)}
-              placeholder={'{"access_token": "...", ...}'}
-              style={{ width: '100%', minHeight: '80px', resize: 'vertical', fontFamily: 'var(--font-mono)', fontSize: '12px' }}
-            />
-            <button className="term-btn amber" style={{ marginTop: '6px' }}
-              onClick={() => save('garminOauth2Token', garminOauth2)}
-              disabled={!garminOauth2 || saving === 'garminOauth2Token'}>
-              {saving === 'garminOauth2Token' ? '[...]' : '[SAVE OAuth2]'}
-            </button>
+            <code style={{ background: '#111', padding: '4px 8px', display: 'inline-block', color: '#0f0' }}>
+              python3 garmin_login.py
+            </code>
           </div>
 
-          <div>
-            <div className="dim" style={{ fontSize: '11px', marginBottom: '4px' }}>
-              OAuth1 TOKEN (contents of oauth1_token.json)
+          <div style={{ marginBottom: '14px', fontSize: '12px' }}>
+            <div style={{ color: '#aaa', marginBottom: '4px' }}>
+              <span className="amber">Option B</span> — browser cookie (use if Option A is rate-limited):
             </div>
-            <textarea
-              className="term-input"
-              value={garminOauth1}
-              onChange={e => setGarminOauth1(e.target.value)}
-              placeholder={'{"oauth_token": "...", ...}'}
-              style={{ width: '100%', minHeight: '80px', resize: 'vertical', fontFamily: 'var(--font-mono)', fontSize: '12px' }}
-            />
-            <button className="term-btn amber" style={{ marginTop: '6px' }}
-              onClick={() => save('garminOauth1Token', garminOauth1)}
-              disabled={!garminOauth1 || saving === 'garminOauth1Token'}>
-              {saving === 'garminOauth1Token' ? '[...]' : '[SAVE OAuth1]'}
-            </button>
+            <code style={{ background: '#111', padding: '4px 8px', display: 'inline-block', color: '#0f0' }}>
+              python3 garmin_login.py --browser
+            </code>
           </div>
 
-          {(settings?.hasGarminOauth1 || settings?.hasGarminOauth2) && (
-            <div style={{ marginTop: '10px', display: 'flex', gap: '8px' }}>
-              {settings.hasGarminOauth2 && (
-                <button className="term-btn" style={{ fontSize: '11px' }} onClick={() => clearField('garminOauth2Token')}>
-                  [CLEAR OAuth2]
-                </button>
-              )}
-              {settings.hasGarminOauth1 && (
-                <button className="term-btn" style={{ fontSize: '11px' }} onClick={() => clearField('garminOauth1Token')}>
-                  [CLEAR OAuth1]
-                </button>
-              )}
+          <div style={{ marginBottom: '6px', fontSize: '11px', color: '#555' }}>
+            TOKEN JSON (output from garmin_login.py)
+          </div>
+          <textarea
+            className="term-input"
+            value={garminOauth2}
+            onChange={e => setGarminOauth2(e.target.value)}
+            placeholder={'{"access_token": "eyJ...", "refresh_token": "...", "client_id": "..."}'}
+            style={{ width: '100%', minHeight: '70px', resize: 'vertical', fontFamily: 'var(--font-mono)', fontSize: '11px' }}
+          />
+          <button className="term-btn amber" style={{ marginTop: '6px' }}
+            onClick={() => save('garminOauth2Token', garminOauth2)}
+            disabled={!garminOauth2 || saving === 'garminOauth2Token'}>
+            {saving === 'garminOauth2Token' ? '[...]' : '[SAVE TOKEN]'}
+          </button>
+
+          {settings?.hasGarminOauth2 && (
+            <div style={{ marginTop: '10px' }}>
+              <button className="term-btn" style={{ fontSize: '11px' }} onClick={() => clearField('garminOauth2Token')}>
+                [CLEAR TOKEN]
+              </button>
             </div>
           )}
         </div>
@@ -193,7 +178,7 @@ export default function Settings() {
           <div>• They are stored encrypted in the database, isolated to your account.</div>
           <div>• No other user can access your data.</div>
           <div>• Your key is never sent to the browser — only used server-side per request.</div>
-          <div>• Garmin tokens expire in ~30 days. Re-run browser_auth.py when needed.</div>
+          <div>• Garmin token auto-refreshes server-side. Re-run garmin_login.py every ~90 days.</div>
         </div>
       </div>
     </div>
