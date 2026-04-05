@@ -2,7 +2,7 @@ import express from 'express'
 import bcrypt from 'bcrypt'
 import jwt from 'jsonwebtoken'
 import cors from 'cors'
-import { randomUUID } from 'crypto'
+import { randomUUID, createHmac } from 'crypto'
 import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
 import Anthropic from '@anthropic-ai/sdk'
@@ -300,33 +300,67 @@ function getUserGarminTokens(userId) {
   return result
 }
 
-// Attempt to refresh the Garmin OAuth2 access_token using the stored refresh_token.
-// Returns the new oauth2 object on success, or null on failure.
+// Build an OAuth1 Authorization header (HMAC-SHA1) using Node.js built-in crypto.
+// Garmin uses this for the di-oauth/exchange endpoint to issue fresh OAuth2 tokens.
+function oauth1AuthHeader(method, url, consumerKey, consumerSecret, tokenKey, tokenSecret) {
+  const pct = (s) => encodeURIComponent(String(s)).replace(/[!'()*]/g, c => '%' + c.charCodeAt(0).toString(16).toUpperCase())
+  const nonce = randomUUID().replace(/-/g, '')
+  const ts = String(Math.floor(Date.now() / 1000))
+  const params = {
+    oauth_consumer_key: consumerKey,
+    oauth_nonce: nonce,
+    oauth_signature_method: 'HMAC-SHA1',
+    oauth_timestamp: ts,
+    oauth_token: tokenKey,
+    oauth_version: '1.0',
+  }
+  const baseParams = Object.entries(params)
+    .sort(([a], [b]) => a < b ? -1 : 1)
+    .map(([k, v]) => `${pct(k)}=${pct(v)}`)
+    .join('&')
+  const baseString = [method.toUpperCase(), pct(url), pct(baseParams)].join('&')
+  const signingKey = `${pct(consumerSecret)}&${pct(tokenSecret)}`
+  const signature = createHmac('sha1', signingKey).update(baseString).digest('base64')
+  const header = Object.entries({ ...params, oauth_signature: signature })
+    .map(([k, v]) => `${pct(k)}="${pct(v)}"`)
+    .join(', ')
+  return `OAuth ${header}`
+}
+
+// Refresh the Garmin OAuth2 token using the long-lived OAuth1 credentials.
+// Garmin does NOT use standard OAuth2 refresh_token grant — the correct flow is:
+// OAuth1-signed GET to https://connect.garmin.com/modern/di-oauth/exchange
+// which returns a fresh OAuth2 access_token. The OAuth1 token never expires.
 async function refreshGarminToken(userId) {
   const s = getSettings(userId)
-  if (!s.garmin_oauth2_token) return null
-  let oauth2
-  try { oauth2 = JSON.parse(decrypt(s.garmin_oauth2_token)) } catch { return null }
-  if (!oauth2?.refresh_token) return null
+  if (!s.garmin_oauth1_token) return null
+  let oauth1
+  try { oauth1 = JSON.parse(decrypt(s.garmin_oauth1_token)) } catch { return null }
+  const { consumer_key, consumer_secret, oauth_token, oauth_token_secret } = oauth1 || {}
+  if (!consumer_key || !consumer_secret || !oauth_token || !oauth_token_secret) return null
 
+  const exchangeUrl = 'https://connect.garmin.com/modern/di-oauth/exchange'
   try {
-    const r = await fetch('https://connectapi.garmin.com/oauth-service/oauth/token', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'GCM-iOS-5.7.2.1' },
-      body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: oauth2.refresh_token }),
+    const authHeader = oauth1AuthHeader('GET', exchangeUrl, consumer_key, consumer_secret, oauth_token, oauth_token_secret)
+    const r = await fetch(exchangeUrl, {
+      headers: { 'Authorization': authHeader, 'User-Agent': 'GCM-iOS-5.7.2.1' },
     })
-    if (!r.ok) return null
+    if (!r.ok) {
+      console.error(`Garmin token refresh failed: ${r.status} ${await r.text()}`)
+      return null
+    }
     const fresh = await r.json()
     if (!fresh.access_token) return null
 
-    // Merge new fields into existing token object and save
-    const merged = { ...oauth2, ...fresh }
     const now = Date.now()
     getDb().prepare('UPDATE user_settings SET garmin_oauth2_token = ?, garmin_oauth2_saved_at = ?, updated_at = ? WHERE user_id = ?')
-      .run(encrypt(JSON.stringify(merged)), now, now, userId)
-    console.log(`Garmin token auto-refreshed for user ${userId}`)
-    return merged
-  } catch { return null }
+      .run(encrypt(JSON.stringify(fresh)), now, now, userId)
+    console.log(`Garmin token auto-refreshed via OAuth1 exchange for user ${userId}`)
+    return fresh
+  } catch (e) {
+    console.error(`Garmin token refresh error: ${e.message}`)
+    return null
+  }
 }
 
 app.post('/api/settings', requireAuth, (req, res) => {
