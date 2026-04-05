@@ -300,6 +300,35 @@ function getUserGarminTokens(userId) {
   return result
 }
 
+// Attempt to refresh the Garmin OAuth2 access_token using the stored refresh_token.
+// Returns the new oauth2 object on success, or null on failure.
+async function refreshGarminToken(userId) {
+  const s = getSettings(userId)
+  if (!s.garmin_oauth2_token) return null
+  let oauth2
+  try { oauth2 = JSON.parse(decrypt(s.garmin_oauth2_token)) } catch { return null }
+  if (!oauth2?.refresh_token) return null
+
+  try {
+    const r = await fetch('https://connectapi.garmin.com/oauth-service/oauth/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'GCM-iOS-5.7.2.1' },
+      body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: oauth2.refresh_token }),
+    })
+    if (!r.ok) return null
+    const fresh = await r.json()
+    if (!fresh.access_token) return null
+
+    // Merge new fields into existing token object and save
+    const merged = { ...oauth2, ...fresh }
+    const now = Date.now()
+    getDb().prepare('UPDATE user_settings SET garmin_oauth2_token = ?, garmin_oauth2_saved_at = ?, updated_at = ? WHERE user_id = ?')
+      .run(encrypt(JSON.stringify(merged)), now, now, userId)
+    console.log(`Garmin token auto-refreshed for user ${userId}`)
+    return merged
+  } catch { return null }
+}
+
 app.post('/api/settings', requireAuth, (req, res) => {
   const { anthropicApiKey, garminOauth1Token, garminOauth2Token } = req.body
   const s = getSettings(req.user.sub)
@@ -702,13 +731,30 @@ app.post('/api/push-workout', requireAuth, async (req, res) => {
 
     const workout = buildGarminWorkout(workoutParams)
 
-    const garminRes = await fetch('https://connectapi.garmin.com/workout-service/workout', {
+    const pushToGarmin = (token) => fetch('https://connectapi.garmin.com/workout-service/workout', {
       method: 'POST',
-      headers: { 'Authorization': `Bearer ${garminOauth2.access_token}`, 'Content-Type': 'application/json', 'User-Agent': 'GCM-iOS-5.7.2.1' },
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json', 'User-Agent': 'GCM-iOS-5.7.2.1' },
       body: JSON.stringify(workout),
     })
 
-    if (!garminRes.ok) return res.status(502).json({ error: `Garmin API error ${garminRes.status}: ${await garminRes.text()}` })
+    let garminRes = await pushToGarmin(garminOauth2.access_token)
+
+    // Token expired — try auto-refresh once
+    if (garminRes.status === 401) {
+      const refreshed = await refreshGarminToken(req.user.sub)
+      if (refreshed) {
+        garminOauth2 = refreshed
+        garminRes = await pushToGarmin(garminOauth2.access_token)
+      }
+    }
+
+    if (!garminRes.ok) {
+      const body = await garminRes.text()
+      if (garminRes.status === 401) {
+        return res.status(401).json({ error: 'Garmin token expired and auto-refresh failed. Re-run browser_auth.py and paste the new oauth2_token.json content in Settings.' })
+      }
+      return res.status(502).json({ error: `Garmin API error ${garminRes.status}: ${body}` })
+    }
     const result = await garminRes.json()
     res.json({ workoutId: result.workoutId || result.workout_id, workoutName: workout.workoutName })
   } catch (e) {
@@ -727,10 +773,13 @@ app.get('/api/garmin-activities', requireAuth, async (req, res) => {
   }
 
   try {
-    const r = await fetch('https://connectapi.garmin.com/activitylist-service/activities/search/activities?start=0&limit=10&activityType=running', {
-      headers: { 'Authorization': `Bearer ${garminOauth2.access_token}`, 'User-Agent': 'GCM-iOS-5.7.2.1' },
-    })
-    if (!r.ok) return res.status(502).json({ error: `Garmin API error ${r.status}: ${await r.text()}` })
+    const actUrl = 'https://connectapi.garmin.com/activitylist-service/activities/search/activities?start=0&limit=10&activityType=running'
+    let r = await fetch(actUrl, { headers: { 'Authorization': `Bearer ${garminOauth2.access_token}`, 'User-Agent': 'GCM-iOS-5.7.2.1' } })
+    if (r.status === 401) {
+      const refreshed = await refreshGarminToken(req.user.sub)
+      if (refreshed) { garminOauth2 = refreshed; r = await fetch(actUrl, { headers: { 'Authorization': `Bearer ${garminOauth2.access_token}`, 'User-Agent': 'GCM-iOS-5.7.2.1' } }) }
+    }
+    if (!r.ok) return res.status(r.status === 401 ? 401 : 502).json({ error: r.status === 401 ? 'Garmin token expired. Re-run browser_auth.py and paste fresh tokens in Settings.' : `Garmin API error ${r.status}: ${await r.text()}` })
     const list = await r.json()
     const activities = (Array.isArray(list) ? list : list.activityList || []).map(a => ({
       activityId: a.activityId,
