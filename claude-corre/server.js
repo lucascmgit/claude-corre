@@ -300,91 +300,15 @@ function getUserGarminTokens(userId) {
   return result
 }
 
-// Browser-like UA — the old GCM-iOS UA is now flagged by Garmin's Cloudflare WAF
-const BROWSER_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
-
-// Save fresh OAuth2 token to DB and return it.
-function _saveOauth2Token(userId, fresh) {
-  const now = Date.now()
-  getDb().prepare('UPDATE user_settings SET garmin_oauth2_token = ?, garmin_oauth2_saved_at = ?, updated_at = ? WHERE user_id = ?')
-    .run(encrypt(JSON.stringify(fresh)), now, now, userId)
-  return fresh
+// Garmin Cloudflare blocks ALL token refresh calls from datacenter IPs (Railway, AWS, etc.).
+// Only residential IPs (user's local machine) can refresh. The server cannot auto-refresh.
+// This function always returns null — callers use the GARMIN_TOKEN_EXPIRED_MSG error message
+// to tell the user to run refresh_token.py locally.
+async function refreshGarminToken(_userId) {
+  return { token: null, error: GARMIN_TOKEN_EXPIRED_MSG }
 }
 
-// Attempt 1: Garmin's new DI OAuth refresh endpoint (connect.garmin.com/modern/di-oauth/refresh).
-// As of March 2026 this is how garminconnect v0.3.0 keeps sessions alive indefinitely.
-// Does NOT require OAuth1 — just the refresh_token from the stored OAuth2 token.
-async function _tryDiOauthRefresh(refreshToken) {
-  const r = await fetch('https://connect.garmin.com/modern/di-oauth/refresh', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'User-Agent': BROWSER_UA,
-      'Accept': 'application/json',
-      'Origin': 'https://connect.garmin.com',
-      'Referer': 'https://connect.garmin.com/',
-    },
-    body: new URLSearchParams({ refresh_token: refreshToken }),
-  })
-  const body = await r.text()
-  if (!r.ok) return { ok: false, err: `DI OAuth refresh ${r.status}: ${body.slice(0, 200)}` }
-  try {
-    const fresh = JSON.parse(body)
-    if (!fresh.access_token) return { ok: false, err: `DI OAuth response missing access_token. Keys: ${Object.keys(fresh).join(', ')}` }
-    return { ok: true, token: fresh }
-  } catch { return { ok: false, err: `DI OAuth response not JSON: ${body.slice(0, 100)}` } }
-}
-
-// Attempt 2: Standard OAuth2 refresh_token grant (fallback).
-async function _tryOauth2Refresh(refreshToken) {
-  const r = await fetch('https://connectapi.garmin.com/oauth-service/oauth/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': BROWSER_UA, 'Accept': 'application/json' },
-    body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: refreshToken }),
-  })
-  const body = await r.text()
-  if (!r.ok) return { ok: false, err: `OAuth2 refresh ${r.status}: ${body.slice(0, 200)}` }
-  try {
-    const fresh = JSON.parse(body)
-    if (!fresh.access_token) return { ok: false, err: `OAuth2 refresh response missing access_token. Keys: ${Object.keys(fresh).join(', ')}` }
-    return { ok: true, token: fresh }
-  } catch { return { ok: false, err: `OAuth2 refresh response not JSON: ${body.slice(0, 100)}` } }
-}
-
-// Refresh the Garmin OAuth2 access_token.
-// Tries DI OAuth refresh first (garminconnect v0.3.0 approach), then standard OAuth2 refresh grant.
-// Returns { token, error } — token is null and error is a human-readable string on failure.
-async function refreshGarminToken(userId) {
-  const s = getSettings(userId)
-  if (!s.garmin_oauth2_token) return { token: null, error: 'No OAuth2 token saved. Paste oauth2_token.json in Settings.' }
-  let oauth2
-  try { oauth2 = JSON.parse(decrypt(s.garmin_oauth2_token)) } catch (e) { return { token: null, error: `OAuth2 token decrypt failed: ${e.message}` } }
-  const refreshToken = oauth2?.refresh_token
-  if (!refreshToken) return { token: null, error: `OAuth2 token has no refresh_token field. Keys found: ${Object.keys(oauth2 || {}).join(', ')}` }
-
-  const errors = []
-  try {
-    const r1 = await _tryDiOauthRefresh(refreshToken)
-    if (r1.ok) {
-      console.log(`Garmin token refreshed via DI OAuth for user ${userId}`)
-      return { token: _saveOauth2Token(userId, r1.token), error: null }
-    }
-    errors.push(`DI: ${r1.err}`)
-    console.warn(`Garmin DI refresh failed for user ${userId}: ${r1.err}`)
-  } catch (e) { errors.push(`DI: network error: ${e.message}`) }
-
-  try {
-    const r2 = await _tryOauth2Refresh(refreshToken)
-    if (r2.ok) {
-      console.log(`Garmin token refreshed via OAuth2 grant for user ${userId}`)
-      return { token: _saveOauth2Token(userId, r2.token), error: null }
-    }
-    errors.push(`OAuth2: ${r2.err}`)
-    console.warn(`Garmin OAuth2 refresh failed for user ${userId}: ${r2.err}`)
-  } catch (e) { errors.push(`OAuth2: network error: ${e.message}`) }
-
-  return { token: null, error: `All refresh methods failed — ${errors.join(' | ')}. Re-run browser_auth.py and paste fresh oauth2_token.json in Settings.` }
-}
+const GARMIN_TOKEN_EXPIRED_MSG = 'Garmin token expired (lasts ~1 hour). On your Mac: run  python3 refresh_token.py  — it prints a fresh token. Paste it in Settings → Garmin OAuth2 token.'
 
 app.post('/api/settings', requireAuth, (req, res) => {
   const { anthropicApiKey, garminOauth1Token, garminOauth2Token } = req.body
