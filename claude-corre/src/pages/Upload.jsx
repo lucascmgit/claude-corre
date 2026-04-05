@@ -186,9 +186,11 @@ function GarminSync({ hasGarminTokens, onAnalysisResult }) {
   async function loadActivities() {
     setLoadingList(true)
     setListError('')
+    setRenewMode(false)
     try {
       const res = await fetch('/api/garmin-activities', { headers: getAuthHeader() })
       const d = await res.json()
+      if (!res.ok && res.status === 401) { setRenewMode(true); setLoadingList(false); return }
       if (!res.ok) throw new Error(d.error || `Error ${res.status}`)
       setActivities(d.activities || [])
     } catch (e) {
@@ -283,12 +285,13 @@ function GarminSync({ hasGarminTokens, onAnalysisResult }) {
             Fetch your recent runs directly from Garmin — no CSV export needed.
           </div>
 
-          {!activities && (
+          {!activities && !renewMode && (
             <button className="term-btn amber" onClick={loadActivities} disabled={loadingList}>
               {loadingList ? '[LOADING...]' : '[FETCH RECENT RUNS]'}
             </button>
           )}
           {listError && <div className="red" style={{ fontSize: '13px', marginTop: '8px' }}>✗ {listError}</div>}
+          {renewMode && <TokenRenewWizard getAuthHeader={getAuthHeader} onSaved={loadActivities} />}
 
           {activities && activities.length === 0 && (
             <div className="dim" style={{ fontSize: '13px' }}>No recent running activities found in Garmin Connect.</div>

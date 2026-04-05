@@ -300,15 +300,6 @@ function getUserGarminTokens(userId) {
   return result
 }
 
-// Garmin Cloudflare blocks ALL token refresh calls from datacenter IPs (Railway, AWS, etc.).
-// Only residential IPs (user's local machine) can refresh. The server cannot auto-refresh.
-// This function always returns null — callers use the GARMIN_TOKEN_EXPIRED_MSG error message
-// to tell the user to run refresh_token.py locally.
-async function refreshGarminToken(_userId) {
-  return { token: null, error: GARMIN_TOKEN_EXPIRED_MSG }
-}
-
-const GARMIN_TOKEN_EXPIRED_MSG = 'Garmin token expired (lasts ~1 hour). On your Mac: run  python3 refresh_token.py  — it prints a fresh token. Paste it in Settings → Garmin OAuth2 token.'
 
 app.post('/api/settings', requireAuth, (req, res) => {
   const { anthropicApiKey, garminOauth1Token, garminOauth2Token } = req.body
@@ -339,23 +330,15 @@ app.get('/api/settings', requireAuth, (req, res) => {
 
 // ── Garmin token diagnostics ──────────────────────────────────────────────────
 
-app.get('/api/garmin-debug', requireAuth, async (req, res) => {
+app.get('/api/garmin-debug', requireAuth, (req, res) => {
   const s = getSettings(req.user.sub)
-  const info = {
-    hasOauth1: !!s.garmin_oauth1_token,
-    hasOauth2: !!s.garmin_oauth2_token,
-    oauth1Fields: null,
-    oauth2Fields: null,
-    refreshResult: null,
-  }
+  const info = { hasOauth1: !!s.garmin_oauth1_token, hasOauth2: !!s.garmin_oauth2_token, oauth1Fields: null, oauth2Fields: null }
   if (s.garmin_oauth1_token) {
     try { info.oauth1Fields = Object.keys(JSON.parse(decrypt(s.garmin_oauth1_token))) } catch (e) { info.oauth1Fields = `decrypt error: ${e.message}` }
   }
   if (s.garmin_oauth2_token) {
     try { info.oauth2Fields = Object.keys(JSON.parse(decrypt(s.garmin_oauth2_token))) } catch (e) { info.oauth2Fields = `decrypt error: ${e.message}` }
   }
-  const { token, error } = await refreshGarminToken(req.user.sub)
-  info.refreshResult = token ? 'SUCCESS — new token saved' : `FAILED: ${error}`
   res.json(info)
 })
 
