@@ -300,6 +300,16 @@ function getUserGarminTokens(userId) {
   return result
 }
 
+// Returns fetch headers for connectapi.garmin.com based on token type.
+// DI tokens (from garmin_login.py normal mode) use Bearer auth.
+// JWT_WEB tokens (from --browser mode, no refresh_token) use Cookie auth.
+function garminFetchHeaders(tokenStr, isDiToken) {
+  if (isDiToken) {
+    return { 'Authorization': `Bearer ${tokenStr}`, 'User-Agent': 'GCM-Android-5.23', 'Accept': 'application/json' }
+  }
+  return { 'Cookie': `JWT_WEB=${tokenStr}`, 'NK': 'NT', 'DI-Backend': 'connectapi.garmin.com', 'Accept': 'application/json' }
+}
+
 // Auto-refreshes the DI access_token via diauth.garmin.com (NOT Cloudflare-blocked).
 // Token format: {access_token, refresh_token, client_id}
 // Returns the new access_token string, or null if refresh fails.
@@ -769,10 +779,11 @@ app.post('/api/push-workout', requireAuth, async (req, res) => {
     }
 
     const workout = buildGarminWorkout(workoutParams)
+    const isDi = !!garminOauth2.refresh_token
 
     const pushToGarmin = (token) => fetch('https://connectapi.garmin.com/workout-service/workout', {
       method: 'POST',
-      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json', 'User-Agent': 'GCM-iOS-5.7.2.1' },
+      headers: { ...garminFetchHeaders(token, isDi), 'Content-Type': 'application/json' },
       body: JSON.stringify(workout),
     })
 
@@ -807,7 +818,8 @@ app.get('/api/garmin-activities', requireAuth, async (req, res) => {
 
   try {
     const actUrl = 'https://connectapi.garmin.com/activitylist-service/activities/search/activities?start=0&limit=10&activityType=running'
-    const garminFetch = (token) => fetch(actUrl, { headers: { 'Authorization': `Bearer ${token}`, 'User-Agent': 'GCM-Android-5.23' } })
+    const isDi = !!garminOauth2.refresh_token
+    const garminFetch = (token) => fetch(actUrl, { headers: garminFetchHeaders(token, isDi) })
     let r = await garminFetch(garminOauth2.access_token)
     if (!r.ok && r.status === 401) {
       const fresh = await refreshDiToken(req.user.sub)
@@ -851,8 +863,9 @@ app.post('/api/import-garmin', requireAuth, async (req, res) => {
 
   try {
     // Download CSV from Garmin (auto-refresh DI token on 401)
+    const isDiCsv = !!garminOauth2.refresh_token
     const csvFetch = (token) => fetch(`https://connectapi.garmin.com/download-service/export/csv/activity/${activityId}`, {
-      headers: { 'Authorization': `Bearer ${token}`, 'User-Agent': 'GCM-Android-5.23' },
+      headers: garminFetchHeaders(token, isDiCsv),
     })
     let csvRes = await csvFetch(garminOauth2.access_token)
     if (!csvRes.ok && csvRes.status === 401) {
