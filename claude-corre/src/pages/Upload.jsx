@@ -3,25 +3,58 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useAuth } from '../context/AuthContext.jsx'
 
-const BRIDGE_URL = 'http://localhost:9876'
-
-// Try to refresh the Garmin token via the local bridge (garmin_bridge.py).
-// Returns the fresh token object on success, or null if bridge is unreachable.
-async function refreshViaLocalBridge(getAuthHeader) {
+// Refresh the Garmin token directly from the browser (residential IP — bypasses
+// Garmin's Cloudflare block on datacenter IPs). Tries two endpoints in order.
+async function refreshViaBrowser(getAuthHeader) {
   try {
-    const healthRes = await fetch(`${BRIDGE_URL}/health`, { signal: AbortSignal.timeout(1500) })
-    if (!healthRes.ok) return null
-    const refreshRes = await fetch(`${BRIDGE_URL}/refresh`, { signal: AbortSignal.timeout(8000) })
-    if (!refreshRes.ok) return null
-    const token = await refreshRes.json()
-    if (!token.access_token) return null
-    // Save the fresh token to the server
+    // 1. Get the current refresh_token from the server
+    const raw = await fetch('/api/garmin-raw-token', { headers: getAuthHeader() })
+    if (!raw.ok) return null
+    const stored = await raw.json()
+    const refreshToken = stored?.refresh_token
+    if (!refreshToken) return null
+
+    // 2a. DI OAuth refresh (garminconnect v0.3.0 approach)
+    let fresh = null
+    try {
+      const r1 = await fetch('https://connect.garmin.com/modern/di-oauth/refresh', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ refresh_token: refreshToken }),
+      })
+      const body1 = await r1.text()
+      const j1 = JSON.parse(body1)
+      if (j1.access_token) fresh = j1
+    } catch {}
+
+    // 2b. Fallback: exchange/user/2.0 with iOS audience
+    if (!fresh) {
+      try {
+        const r2 = await fetch('https://connectapi.garmin.com/oauth-service/oauth/exchange/user/2.0', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'User-Agent': 'GCM-iOS-5.22.1.4',
+            'garmin-client-platform': 'iOS',
+            'x-app-ver': '5.22.1',
+          },
+          body: new URLSearchParams({ audience: 'GARMIN_CONNECT_MOBILE_IOS_DI', refresh_token: refreshToken }),
+        })
+        const body2 = await r2.text()
+        const j2 = JSON.parse(body2)
+        if (j2.access_token) fresh = j2
+      } catch {}
+    }
+
+    if (!fresh) return null
+
+    // 3. Save the fresh token to the server
     await fetch('/api/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
-      body: JSON.stringify({ garminOauth2Token: JSON.stringify(token) }),
+      body: JSON.stringify({ garminOauth2Token: JSON.stringify(fresh) }),
     })
-    return token
+    return fresh
   } catch { return null }
 }
 
@@ -136,13 +169,13 @@ function GarminSync({ hasGarminTokens, onAnalysisResult }) {
       let res = await doPush()
       let data = await res.json()
       if (!res.ok && res.status === 401) {
-        setOutput(prev => prev + '\n\n[token expired — trying local bridge refresh...]')
-        const refreshed = await refreshViaLocalBridge(getAuthHeader)
+        setOutput(prev => prev + '\n\n[token expired — refreshing...]')
+        const refreshed = await refreshViaBrowser(getAuthHeader)
         if (refreshed) {
           res = await doPush()
           data = await res.json()
         } else {
-          throw new Error('Token expired. Run: python3 garmin_bridge.py — then try again.')
+          throw new Error('Token refresh failed. Paste a fresh oauth2_token.json in Settings → Garmin.')
         }
       }
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
@@ -364,13 +397,13 @@ export default function Upload() {
       let res = await doPush()
       let data = await res.json()
       if (!res.ok && res.status === 401) {
-        setOutput(prev => prev + '\n\n[token expired — trying local bridge refresh...]')
-        const refreshed = await refreshViaLocalBridge(getAuthHeader)
+        setOutput(prev => prev + '\n\n[token expired — refreshing...]')
+        const refreshed = await refreshViaBrowser(getAuthHeader)
         if (refreshed) {
           res = await doPush()
           data = await res.json()
         } else {
-          throw new Error('Token expired. Run: python3 garmin_bridge.py — then try again.')
+          throw new Error('Token refresh failed. Paste a fresh oauth2_token.json in Settings → Garmin.')
         }
       }
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
