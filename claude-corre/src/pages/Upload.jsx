@@ -3,6 +3,28 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useAuth } from '../context/AuthContext.jsx'
 
+const BRIDGE_URL = 'http://localhost:9876'
+
+// Try to refresh the Garmin token via the local bridge (garmin_bridge.py).
+// Returns the fresh token object on success, or null if bridge is unreachable.
+async function refreshViaLocalBridge(getAuthHeader) {
+  try {
+    const healthRes = await fetch(`${BRIDGE_URL}/health`, { signal: AbortSignal.timeout(1500) })
+    if (!healthRes.ok) return null
+    const refreshRes = await fetch(`${BRIDGE_URL}/refresh`, { signal: AbortSignal.timeout(8000) })
+    if (!refreshRes.ok) return null
+    const token = await refreshRes.json()
+    if (!token.access_token) return null
+    // Save the fresh token to the server
+    await fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+      body: JSON.stringify({ garminOauth2Token: JSON.stringify(token) }),
+    })
+    return token
+  } catch { return null }
+}
+
 const SPINNER_FRAMES = ['[/]', '[-]', '[\\]', '[|]']
 
 function Spinner() {
@@ -105,16 +127,27 @@ function GarminSync({ hasGarminTokens, onAnalysisResult }) {
   async function pushToGarmin() {
     if (!prescription) return
     setGarminStatus('pushing')
+    const doPush = () => fetch('/api/push-workout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+      body: JSON.stringify({ prescription }),
+    })
     try {
-      const res = await fetch('/api/push-workout', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
-        body: JSON.stringify({ prescription }),
-      })
-      const data = await res.json()
+      let res = await doPush()
+      let data = await res.json()
+      if (!res.ok && res.status === 401) {
+        setOutput(prev => prev + '\n\n[token expired — trying local bridge refresh...]')
+        const refreshed = await refreshViaLocalBridge(getAuthHeader)
+        if (refreshed) {
+          res = await doPush()
+          data = await res.json()
+        } else {
+          throw new Error('Token expired. Run: python3 garmin_bridge.py — then try again.')
+        }
+      }
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
       setGarminStatus('pushed')
-      setOutput(prev => prev + `\n\n> WORKOUT PUSHED TO GARMIN CONNECT\n> ID: ${data.workoutId}\n> Sync via Bluetooth to push to watch.`)
+      setOutput(prev => prev + `\n\n> WORKOUT PUSHED TO GARMIN CONNECT\n> "${data.workoutName || data.workoutId}"\n> Sync via Bluetooth to push to watch.`)
     } catch (e) {
       setGarminStatus('error')
       setOutput(prev => prev + `\n\nERROR: ${e.message}`)
@@ -322,16 +355,27 @@ export default function Upload() {
   async function pushToGarmin() {
     if (!prescription) return
     setGarminStatus('pushing')
+    const doPush = () => fetch('/api/push-workout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+      body: JSON.stringify({ prescription }),
+    })
     try {
-      const res = await fetch('/api/push-workout', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
-        body: JSON.stringify({ prescription }),
-      })
-      const data = await res.json()
+      let res = await doPush()
+      let data = await res.json()
+      if (!res.ok && res.status === 401) {
+        setOutput(prev => prev + '\n\n[token expired — trying local bridge refresh...]')
+        const refreshed = await refreshViaLocalBridge(getAuthHeader)
+        if (refreshed) {
+          res = await doPush()
+          data = await res.json()
+        } else {
+          throw new Error('Token expired. Run: python3 garmin_bridge.py — then try again.')
+        }
+      }
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
       setGarminStatus('pushed')
-      setOutput(prev => prev + `\n\n> WORKOUT PUSHED TO GARMIN CONNECT\n> ID: ${data.workoutId}\n> Sync via Bluetooth to push to watch.`)
+      setOutput(prev => prev + `\n\n> WORKOUT PUSHED TO GARMIN CONNECT\n> "${data.workoutName || data.workoutId}"\n> Sync via Bluetooth to push to watch.`)
     } catch (e) {
       setGarminStatus('error')
       setOutput(prev => prev + `\n\nERROR: ${e.message}`)
