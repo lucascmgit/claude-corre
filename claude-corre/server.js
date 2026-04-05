@@ -307,7 +307,7 @@ function garminFetchHeaders(tokenStr, isDiToken) {
   if (isDiToken) {
     return { 'Authorization': `Bearer ${tokenStr}`, 'User-Agent': 'GCM-Android-5.23', 'Accept': 'application/json' }
   }
-  return { 'Cookie': `JWT_WEB=${tokenStr}`, 'NK': 'NT', 'DI-Backend': 'connectapi.garmin.com', 'Accept': 'application/json' }
+  return { 'Cookie': `JWT_WEB=${tokenStr}`, 'NK': 'NT', 'DI-Backend': 'connectapi.garmin.com', 'Origin': 'https://connect.garmin.com', 'Referer': 'https://connect.garmin.com/modern/', 'Accept': 'application/json' }
 }
 
 // Auto-refreshes the DI access_token via diauth.garmin.com (NOT Cloudflare-blocked).
