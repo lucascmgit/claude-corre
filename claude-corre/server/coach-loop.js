@@ -55,7 +55,7 @@ PRESCRIPTION RULES:
 - Include the Garmin workout JSON in workout_json when prescribing runs (for push-to-watch)
 
 EVALUATION RULES — THE 5 DIMENSIONS:
-(a) STANDALONE: Parse splits, HR drift, cadence, pacing strategy. Be specific.
+(a) STANDALONE: Parse ALL segments (warmup, run, walk, cooldown). Analyze splits, HR drift, cadence, pacing strategy, warmup effectiveness, cooldown HR recovery rate. Be specific.
 (b) PRESCRIPTION COMPARISON: What was asked vs what was done. Use structured data from the linked prescription.
 (c) ADHERENCE + PERFORMANCE: Adherence score 0-100. Rate as below/on/above target.
 (d) MEDIUM-TERM TRENDS: Compare with recent weeks. Note HR drift at same pace, volume trends, ACWR.
@@ -78,9 +78,9 @@ const UPLOAD_ADDITION = `
 
 ACTIVITY UPLOAD CONTEXT:
 The user is uploading a Garmin activity file. You must:
-1. Parse the CSV data to extract: km splits (pace + HR per km), HR drift, cadence, total distance/time
-2. Separate WALKING segments (pace >8:00/km) from RUNNING segments
-3. Only count RUNNING distance for prescription comparison
+1. Parse the CSV data to extract ALL segments: warmup, run intervals, walk intervals, cooldown
+2. Analyze the FULL session — warmup and cooldown are prescribed and contain useful data (HR recovery rate, readiness signals). Walk intervals in run/walk sessions are integral to the prescription, not noise to filter out.
+3. For prescription comparison, compare the full session structure (including warmup/cooldown duration, walk/run interval pattern) against what was prescribed
 4. Follow the full WORKFLOW FOR ACTIVITY UPLOAD/ANALYSIS above
 5. Present a clear, structured analysis covering all 5 evaluation dimensions`
 
