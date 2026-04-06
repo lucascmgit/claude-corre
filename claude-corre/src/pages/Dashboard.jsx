@@ -4,6 +4,89 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useAuth } from '../context/AuthContext.jsx'
 
+const SPARK_CHARS = '▁▂▃▄▅▆▇█'
+function sparkline(values) {
+  const nums = values.filter(v => v != null)
+  if (nums.length < 2) return ''
+  const min = Math.min(...nums)
+  const max = Math.max(...nums)
+  const range = max - min || 1
+  return values.map(v => {
+    if (v == null) return ' '
+    const idx = Math.round(((v - min) / range) * (SPARK_CHARS.length - 1))
+    return SPARK_CHARS[idx]
+  }).join('')
+}
+
+function formatPace(totalSeconds) {
+  if (!totalSeconds) return '—'
+  const m = Math.floor(totalSeconds / 60)
+  const s = Math.round(totalSeconds % 60)
+  return `${m}:${String(s).padStart(2, '0')}`
+}
+
+function TrendCharts({ trends }) {
+  if (!trends) return null
+  const { volume, avgHr, avgPace } = trends
+  if (!volume || volume.length < 2) return null
+
+  const charts = [
+    {
+      label: 'WEEKLY VOLUME',
+      data: volume,
+      valueKey: 'km',
+      format: v => v != null ? `${v.toFixed(1)} km` : '—',
+      color: 'amber',
+    },
+    {
+      label: 'AVG HEART RATE',
+      data: avgHr,
+      valueKey: 'hr',
+      format: v => v != null ? `${v} bpm` : '—',
+      color: '',
+    },
+    {
+      label: 'AVG PACE',
+      data: avgPace,
+      valueKey: 'paceS',
+      format: v => v != null ? `${formatPace(v)}/km` : '—',
+      color: '',
+      invert: true, // lower is better
+    },
+  ]
+
+  return (
+    <div className="term-box">
+      <div className="term-box-title">
+        <span>TRENDS</span>
+        <span className="dim">// last {volume.length} weeks</span>
+      </div>
+      <div className="term-box-body" style={{ fontFamily: 'var(--font-mono)', fontSize: '13px' }}>
+        {charts.map(({ label, data, valueKey, format, color, invert }) => {
+          const values = data.map(d => d[valueKey])
+          const displayValues = invert ? values.map(v => v != null ? -v : null) : values
+          const latest = values[values.length - 1]
+          const prev = values.length >= 2 ? values[values.length - 2] : null
+          let arrow = ''
+          if (latest != null && prev != null) {
+            const diff = latest - prev
+            const better = invert ? diff < 0 : diff > 0
+            arrow = diff === 0 ? '→' : better ? '↑' : '↓'
+          }
+          return (
+            <div key={label} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+              <span className="dim" style={{ width: '120px', fontSize: '11px' }}>{label}</span>
+              <span className={color} style={{ letterSpacing: '1px' }}>{sparkline(displayValues)}</span>
+              <span className={color || 'dim'} style={{ width: '80px' }}>{format(latest)}</span>
+              <span className={arrow === '↑' ? 'status-ok' : arrow === '↓' ? 'red' : 'dim'} style={{ fontSize: '11px' }}>{arrow}</span>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 function PhaseBar({ phase, currentWeek }) {
   const phaseNum = phase?.match(/Phase (\d+)/)?.[1] || '?'
   const phaseName = phase?.match(/—\s*([^(]+)/)?.[1]?.trim() || phase
@@ -230,6 +313,7 @@ export default function Dashboard() {
   const [trainingLoad, setTrainingLoad] = useState(null)
   const [latestEval, setLatestEval] = useState(null)
   const [pendingPrescription, setPendingPrescription] = useState(null)
+  const [trends, setTrends] = useState(null)
 
   const onboardChecked = useRef(false)
 
@@ -253,8 +337,9 @@ export default function Dashboard() {
       }
       setLoading(false)
     }).catch(() => setLoading(false))
-    // Fetch training load separately (non-blocking)
+    // Fetch training load and trends separately (non-blocking)
     fetch('/api/training-load', { headers }).then(r => r.ok ? r.json() : null).then(d => { if (d) setTrainingLoad(d) }).catch(() => {})
+    fetch('/api/trends', { headers }).then(r => r.ok ? r.json() : null).then(d => { if (d) setTrends(d) }).catch(() => {})
   }
 
   useEffect(() => {
@@ -429,7 +514,10 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Weekly volume chart */}
+      {/* Trend sparklines (from structured data) */}
+      <TrendCharts trends={trends} />
+
+      {/* Weekly volume chart (legacy, from markdown) */}
       {activities.length >= 2 && <WeeklySummary activities={activities} />}
 
       {/* Coach notes */}

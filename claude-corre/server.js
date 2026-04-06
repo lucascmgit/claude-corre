@@ -8,7 +8,6 @@ import { fileURLToPath } from 'url'
 import Anthropic from '@anthropic-ai/sdk'
 import { initDb, getDb } from './server/db.js'
 import { encrypt, decrypt } from './server/crypto.js'
-import { NEW_USER_LOG } from './server/log.js'
 import { backfillAll } from './server/backfill.js'
 import { runCoachLoop } from './server/coach-loop.js'
 
@@ -35,89 +34,7 @@ setInterval(() => {
   for (const [k, v] of rateLimitMap) if (now > v.resetAt) rateLimitMap.delete(k)
 }, 300_000)
 
-const COACH_SYSTEM_PROMPT = `You are a personal running coach. You are scientific, direct, and never sycophantic. You base every recommendation on proven training principles (Daniels, Seiler, Galloway, Hawley).
-
-TONE RULES:
-- Direct and specific. Never vague.
-- No praise for doing the obvious.
-- Name mistakes clearly with their physiological consequence.
-- Never open with compliments. Never close with "great job".
-- Use data, not feelings.
-
-SCIENCE REQUIREMENT:
-Every prescribed session must include a 2-4 sentence explanation of the physiological principle. State the mechanism and cite the source (e.g. Holloszy, 1967; Seiler, 2010).
-
-KEY PRINCIPLES:
-1. Connective tissue adapts 3-5x slower than cardiovascular fitness (Magnusson et al., 2010).
-2. 80/20 rule: 80% Z2, 20% harder (Seiler, 2010).
-3. 10% rule: never increase weekly volume >10-15% (Buist et al., 2010).
-4. Adjust HR targets down 5-8 bpm in heat (30C+).
-
-ACTIVITY LOGGING — MANDATORY RULE:
-When the user reports completing ANY activity (yoga, run, cycling, functional training, rest day, strength, walk, etc.):
-1. Add it to the Activity Log table in the training log. Use the EXACT column order: Date | Day | Type | Distance | Avg Pace | Avg HR | Max HR | Avg Cadence | Notes. Use — for missing fields.
-2. Keep existing rows exactly as-is. Only ADD the new row. Do not reformat, truncate, or rearrange existing entries.
-3. Acknowledge briefly and note any training implications.
-4. YOU MUST ALWAYS include the FULL updated training log in a markdown code block at the END of your response, even if the only change is one new row. No exceptions. Format:
-\`\`\`markdown
-[FULL UPDATED TRAINING LOG HERE]
-\`\`\`
-
-If you do not include this block, the activity will not be saved. Always include it.
-
-ONBOARDING:
-If the training log shows "Not yet configured", guide the user through setting up their profile by asking:
-- Name, age, weight, height, location
-- Running history and best performance
-- Time away from running, current injuries
-- Goal distance, pace, and target date
-- Weekly training availability and cross-training
-Then write their full training log in the markdown code block.
-
-The athlete's full training log is provided below. Use it for all responses.`
-
-const UPLOAD_SYSTEM_PROMPT = `You are a personal running coach. You are scientific, direct, and never sycophantic.
-
-TONE RULES:
-- Direct and specific. Never vague.
-- No praise for doing the obvious.
-- Name mistakes clearly with their physiological consequence.
-- Never open with compliments. Never close with "great job".
-- Use data, not feelings.
-
-When given a Garmin CSV activity file, you must:
-
-1. ANALYZE the run:
-   - Parse km splits: pace and HR per km
-   - Identify HR drift (km1 HR vs last km HR — >25 bpm drift = went out too hard)
-   - Identify max HR vs zone boundaries
-   - Identify cadence trend (target 170+ spm)
-   - State clearly whether the athlete stayed in the prescribed zone
-   - State the physiological consequence of any zone violation
-   - WALKING vs RUNNING: Prescribed sessions often include a walking warmup and cooldown.
-     Separate walking segments (pace >8:00/km or labeled Walk) from running segments.
-     Only compare RUNNING distance to the prescribed running distance.
-     Never penalize the athlete for total distance exceeding the prescribed running distance
-     when the excess comes from walking warmup/cooldown.
-
-2. PRESCRIBE the next session:
-   - Based on this run AND the current training log
-   - Include: distance, HR target, estimated pace, execution cue, science rationale (2-4 sentences with citation)
-   - Format under a "## NEXT PRESCRIBED SESSION" heading
-
-3. UPDATE the training log — CRITICAL:
-   - You MUST output the FULL updated training log in a markdown code block at the END of your response.
-   - This is how the app saves your analysis. If you skip it, the run will not be recorded.
-   - Add this run to the Activity Log table (running distance only, exclude walking warmup/cooldown)
-   - Update Coach Notes
-   - Rewrite Prescribed Sessions with the new prescription
-   - Format: \`\`\`markdown\\n[FULL LOG HERE]\\n\`\`\`
-
-Key principles:
-- Connective tissue adapts 3-5x slower than cardio (Magnusson et al., 2010)
-- 80/20 rule: 80% Z2 (Seiler, 2010)
-- 10% weekly volume increase max (Buist et al., 2010)
-- Heat: adjust HR targets down 5-8 bpm in 30C+`
+// Legacy prompts removed in v2 — coaching now handled by server/coach-loop.js with tool_use
 
 function todayStr() {
   return new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
@@ -188,100 +105,139 @@ app.get('/api/auth/me', requireAuth, (req, res) => {
   res.json({ email: req.user.email, id: req.user.sub })
 })
 
-// ── Markdown parser ────────────────────────────────────────────────────────────
+// ── Dashboard (reads from structured data) ────────────────────────────────────
 
-function getSection(log, heading) {
-  const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  // Match ## Heading (with optional trailing text), handle --- separators too
-  const match = log.match(new RegExp(`## ${escaped}[^\\n]*\\n([\\s\\S]*?)(?=\\n---\\n|\\n## |$)`))
-  return match ? match[1].trim() : ''
-}
+function buildDashboard(db, userId) {
+  const profile = db.prepare('SELECT * FROM athlete_profiles WHERE user_id = ?').get(userId) || {}
+  const goal = db.prepare("SELECT * FROM goals WHERE user_id = ? AND status = 'active' ORDER BY created_at DESC LIMIT 1").get(userId)
+  const zones = db.prepare('SELECT * FROM training_zones WHERE user_id = ? ORDER BY zone_name').all(userId)
+  const activities = db.prepare('SELECT * FROM activities WHERE user_id = ? ORDER BY activity_date DESC LIMIT 30').all(userId)
+  const plan = db.prepare("SELECT * FROM training_plans WHERE user_id = ? AND status = 'active' LIMIT 1").get(userId)
+  const currentPhase = plan ? db.prepare("SELECT * FROM plan_phases WHERE plan_id = ? AND status = 'active' LIMIT 1").get(plan.id) : null
+  const prescription = db.prepare("SELECT * FROM prescribed_sessions WHERE user_id = ? AND status = 'pending' ORDER BY prescribed_date ASC LIMIT 1").get(userId)
+  const latestEval = activities[0] ? db.prepare('SELECT * FROM workout_evaluations WHERE activity_id = ?').get(activities[0].id) : null
 
-function parseTable(text) {
-  const lines = text.split('\n').filter(l => l.trim().startsWith('|'))
-  if (lines.length < 3) return []
-  const headers = lines[0].split('|').map(h => h.trim()).filter(Boolean)
-  return lines.slice(2)
-    .map(row => {
-      const cells = row.split('|').map(c => c.trim()).filter(Boolean)
-      const obj = {}
-      headers.forEach((h, i) => { obj[h] = cells[i] || '' })
-      return obj
-    })
-    .filter(row => Object.values(row).some(v => v && v !== '—' && v !== '-'))
-}
+  const isNewUser = !profile.name && !goal
 
-// Normalize activity row keys — Claude may use different column names
-function normalizeActivity(act) {
-  const get = (...keys) => { for (const k of keys) if (act[k]) return act[k]; return '' }
-  return {
-    Date:       get('Date', 'date'),
-    Day:        get('Day', 'day'),
-    Type:       get('Type', 'type', 'Activity', 'Session'),
-    Distance:   get('Distance', 'distance', 'Dist'),
-    'Avg Pace': get('Avg Pace', 'Pace', 'pace', 'Average Pace'),
-    'Avg HR':   get('Avg HR', 'HR', 'avg_hr', 'Average HR', 'Heart Rate'),
-    'Max HR':   get('Max HR', 'max_hr', 'Max Heart Rate'),
-    'Avg Cadence': get('Avg Cadence', 'Cadence', 'cadence'),
-    Notes:      get('Notes', 'notes', 'Comment'),
+  // Map to legacy dashboard format for backward compatibility with frontend
+  const profileMap = {}
+  if (profile.name) profileMap.Name = profile.name
+  if (profile.age) profileMap.Age = String(profile.age)
+  if (profile.weight_kg) profileMap.Weight = `${profile.weight_kg}kg`
+  if (profile.height_cm) profileMap.Height = `${profile.height_cm}cm`
+  if (profile.location) profileMap.Location = profile.location
+  if (profile.previous_peak) profileMap['Previous peak'] = profile.previous_peak
+  if (profile.injuries) profileMap['Injuries/limits'] = profile.injuries
+
+  const zonesMapped = zones.map(z => ({
+    Zone: z.zone_name,
+    HR: z.hr_low && z.hr_high ? `${z.hr_low}-${z.hr_high}` : '—',
+    'Est. Pace': z.pace_low && z.pace_high ? `${z.pace_low}-${z.pace_high}/km` : '—',
+    Use: z.description || '—',
+  }))
+
+  const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+  const activitiesMapped = activities.map(a => ({
+    Date: a.activity_date,
+    Day: dayNames[new Date(a.activity_date).getDay()] || '—',
+    Type: a.activity_type || '—',
+    Distance: a.distance_m ? `${(a.distance_m / 1000).toFixed(2)} km` : '—',
+    'Avg Pace': a.avg_pace || '—',
+    'Avg HR': a.avg_hr ? String(a.avg_hr) : '—',
+    'Max HR': a.max_hr ? String(a.max_hr) : '—',
+    'Avg Cadence': a.avg_cadence ? String(a.avg_cadence) : '—',
+    Notes: a.notes || '—',
+  }))
+
+  let prescriptionText = ''
+  if (prescription) {
+    prescriptionText = `**${(prescription.session_type || '').replace('_', ' ')}** — ${prescription.prescribed_date}\n\n${prescription.description || ''}\n\n**Rationale:** ${prescription.rationale || ''}`
   }
-}
-
-function parseLogToDashboard(log) {
-  const profileSection = getSection(log, 'Athlete Profile')
-  const profileRows = parseTable(profileSection)
-  const profile = {}
-  profileRows.forEach(r => {
-    // Support both "Field/Value" and "Metric/Value" column names
-    const key = r.Field || r.Metric || r.Item
-    const val = r.Value || r.Data
-    if (key && val) profile[key] = val
-  })
-
-  // isNewUser if no real profile data AND no recognizable goal set
-  const hasProfileData = Object.values(profile).some(v => v && v !== '—' && v !== '-')
-  // Flexible goal regex: handles **Goal:** and **Goal**: and **Goal** :
-  const goalMatch = log.match(/\*\*Goal\*?\*?:?\s*\*?\*?:?\s*(.+)/) || log.match(/\*\*Goal:\*\*\s*(.+)/)
-  const goalSet = goalMatch && !goalMatch[1]?.includes('Not yet configured') && !goalMatch[1]?.includes('TBD')
-  const isNewUser = !hasProfileData && !goalSet
-
-  const zones = parseTable(getSection(log, 'Training Zones'))
-
-  const activities = parseTable(getSection(log, 'Activity Log'))
-    .map(normalizeActivity)
-    .filter(a => a.Date && a.Date !== '—' && a.Date !== '-')
-    .reverse()
-  const phaseMatch = log.match(/\*\*Current Phase:\*\*\s*(.+)/)
-  const weekMatch = log.match(/\*\*Current Week:\*\*\s*(.+)/)
 
   return {
     isNewUser,
-    profile,
-    goal: goalMatch?.[1]?.trim() || '—',
-    phase: phaseMatch?.[1]?.trim() || '—',
-    currentWeek: weekMatch?.[1]?.trim() || null,
-    zones,
-    activities,
-    prescription: getSection(log, 'Prescribed Sessions'),
-    coachNotes: getSection(log, 'Coach Notes'),
+    profile: profileMap,
+    goal: goal?.description || '—',
+    phase: currentPhase ? currentPhase.name : '—',
+    currentWeek: plan ? `Week ${Math.max(1, Math.ceil((Date.now() - new Date(plan.start_date).getTime()) / (7 * 86400000)))}` : null,
+    zones: zonesMapped,
+    activities: activitiesMapped,
+    prescription: prescriptionText,
+    coachNotes: latestEval?.coach_notes || '',
   }
 }
 
 app.get('/api/dashboard', requireAuth, (req, res) => {
-  const row = getDb().prepare('SELECT content FROM training_logs WHERE user_id = ?').get(req.user.sub)
-  const log = row?.content || NEW_USER_LOG
-  const parsed = parseLogToDashboard(log)
+  const db = getDb()
+  const parsed = buildDashboard(db, req.user.sub)
   const s = getSettings(req.user.sub)
   parsed.hasGarminTokens = !!s.garmin_oauth2_token
   parsed.garminTokenDaysOld = s.garmin_oauth2_saved_at ? Math.floor((Date.now() - s.garmin_oauth2_saved_at) / 86_400_000) : null
   res.json(parsed)
 })
 
-// ── Training log ───────────────────────────────────────────────────────────────
+// ── Training log (derived from structured data) ──────────────────────────────
+
+function renderTrainingLog(db, userId) {
+  const profile = db.prepare('SELECT * FROM athlete_profiles WHERE user_id = ?').get(userId)
+  const goal = db.prepare("SELECT * FROM goals WHERE user_id = ? AND status = 'active' LIMIT 1").get(userId)
+  const zones = db.prepare('SELECT * FROM training_zones WHERE user_id = ? ORDER BY zone_name').all(userId)
+  const activities = db.prepare('SELECT * FROM activities WHERE user_id = ? ORDER BY activity_date DESC LIMIT 50').all(userId)
+  const prescription = db.prepare("SELECT * FROM prescribed_sessions WHERE user_id = ? AND status = 'pending' ORDER BY prescribed_date ASC LIMIT 1").get(userId)
+  const plan = db.prepare("SELECT * FROM training_plans WHERE user_id = ? AND status = 'active' LIMIT 1").get(userId)
+  const currentPhase = plan ? db.prepare("SELECT * FROM plan_phases WHERE plan_id = ? AND status = 'active' LIMIT 1").get(plan.id) : null
+
+  let md = `# Running Training Log\n\n`
+  md += `**Goal:** ${goal?.description || 'Not yet configured'}\n`
+  md += `**Current Phase:** ${currentPhase?.name || 'Not started'}\n`
+  if (plan) md += `**Current Week:** Week ${Math.max(1, Math.ceil((Date.now() - new Date(plan.start_date).getTime()) / (7 * 86400000)))}\n`
+  md += `\n---\n\n## Athlete Profile\n\n`
+  md += `| Field | Value |\n|-------|-------|\n`
+  const p = profile || {}
+  md += `| Name | ${p.name || '—'} |\n`
+  md += `| Age | ${p.age || '—'} |\n`
+  md += `| Weight | ${p.weight_kg ? p.weight_kg + 'kg' : '—'} |\n`
+  md += `| Height | ${p.height_cm ? p.height_cm + 'cm' : '—'} |\n`
+  md += `| Location | ${p.location || '—'} |\n`
+  md += `| Previous peak | ${p.previous_peak || '—'} |\n`
+  md += `| Injuries/limits | ${p.injuries || '—'} |\n`
+
+  md += `\n## Training Zones\n\n`
+  if (zones.length > 0) {
+    md += `| Zone | HR | Est. Pace | Use |\n|------|----|-----------|-----|\n`
+    for (const z of zones) {
+      md += `| ${z.zone_name} | ${z.hr_low && z.hr_high ? z.hr_low + '-' + z.hr_high : '—'} | ${z.pace_low && z.pace_high ? z.pace_low + '-' + z.pace_high + '/km' : '—'} | ${z.description || '—'} |\n`
+    }
+  } else {
+    md += `*Not yet calibrated.*\n`
+  }
+
+  md += `\n---\n\n## Activity Log\n\n`
+  md += `| Date | Day | Type | Distance | Avg Pace | Avg HR | Max HR | Avg Cadence | Notes |\n`
+  md += `|------|-----|------|----------|----------|--------|--------|-------------|-------|\n`
+  const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+  for (const a of activities.slice().reverse()) {
+    const d = new Date(a.activity_date)
+    md += `| ${a.activity_date} | ${dayNames[d.getDay()] || '—'} | ${a.activity_type || '—'} | ${a.distance_m ? (a.distance_m / 1000).toFixed(2) + ' km' : '—'} | ${a.avg_pace || '—'} | ${a.avg_hr || '—'} | ${a.max_hr || '—'} | ${a.avg_cadence || '—'} | ${a.notes || '—'} |\n`
+  }
+
+  md += `\n---\n\n## Prescribed Sessions\n\n`
+  if (prescription) {
+    md += `**${(prescription.session_type || '').replace('_', ' ')}** — ${prescription.prescribed_date}\n\n${prescription.description || ''}\n\n**Rationale:** ${prescription.rationale || ''}\n`
+  } else {
+    md += `*No pending sessions.*\n`
+  }
+
+  md += `\n---\n\n## Coach Notes\n\n`
+  const latestEval = activities[0] ? db.prepare('SELECT coach_notes FROM workout_evaluations WHERE activity_id = ?').get(activities[0].id) : null
+  md += latestEval?.coach_notes || '*No notes yet.*'
+
+  return md
+}
 
 app.get('/api/training-log', requireAuth, (req, res) => {
-  const row = getDb().prepare('SELECT content FROM training_logs WHERE user_id = ?').get(req.user.sub)
-  res.json({ content: row?.content || NEW_USER_LOG })
+  const content = renderTrainingLog(getDb(), req.user.sub)
+  res.json({ content })
 })
 
 app.post('/api/training-log', requireAuth, (req, res) => {
@@ -416,6 +372,42 @@ app.get('/api/training-load', requireAuth, (req, res) => {
     chronic_sessions: chronic.sessions,
     risk_level: acwr === null ? 'unknown' : acwr > 1.5 ? 'high' : acwr > 1.3 ? 'elevated' : acwr < 0.8 ? 'detraining' : 'optimal'
   })
+})
+
+app.get('/api/trends', requireAuth, (req, res) => {
+  const weeks = Math.min(parseInt(req.query.weeks) || 12, 52)
+  const db = getDb()
+
+  // Get all run activities in the period
+  const cutoff = new Date(Date.now() - weeks * 7 * 86400000).toISOString().split('T')[0]
+  const runs = db.prepare(
+    "SELECT activity_date, distance_m, duration_s, avg_hr, avg_pace FROM activities WHERE user_id = ? AND activity_date >= ? AND activity_type = 'run' ORDER BY activity_date"
+  ).all(req.user.sub, cutoff)
+
+  // Group by week (Monday-start)
+  const weekMap = {}
+  for (const r of runs) {
+    const d = new Date(r.activity_date)
+    const day = (d.getDay() + 6) % 7
+    const mon = new Date(d); mon.setDate(mon.getDate() - day)
+    const wk = mon.toISOString().split('T')[0]
+    if (!weekMap[wk]) weekMap[wk] = { km: 0, runs: 0, hrSum: 0, hrCount: 0, durationS: 0 }
+    weekMap[wk].km += (r.distance_m || 0) / 1000
+    weekMap[wk].runs++
+    weekMap[wk].durationS += r.duration_s || 0
+    if (r.avg_hr > 0) { weekMap[wk].hrSum += r.avg_hr; weekMap[wk].hrCount++ }
+  }
+
+  const sorted = Object.entries(weekMap).sort((a, b) => a[0].localeCompare(b[0]))
+  const volume = sorted.map(([wk, v]) => ({ week: wk, km: Math.round(v.km * 10) / 10 }))
+  const avgHr = sorted.map(([wk, v]) => ({ week: wk, hr: v.hrCount > 0 ? Math.round(v.hrSum / v.hrCount) : null }))
+  const avgPace = sorted.map(([wk, v]) => {
+    if (v.km <= 0 || v.durationS <= 0) return { week: wk, paceS: null }
+    const paceS = v.durationS / v.km // seconds per km
+    return { week: wk, paceS: Math.round(paceS) }
+  })
+
+  res.json({ volume, avgHr, avgPace })
 })
 
 app.get('/api/training-zones', requireAuth, (req, res) => {
@@ -568,13 +560,13 @@ app.get('/api/garmin-raw-token', requireAuth, (req, res) => {
 // ── Onboarding helpers ────────────────────────────────────────────────────────
 
 app.get('/api/onboard-status', requireAuth, (req, res) => {
+  const db = getDb()
   const s = getSettings(req.user.sub)
-  const logRow = getDb().prepare('SELECT content FROM training_logs WHERE user_id = ?').get(req.user.sub)
-  const log = logRow?.content || NEW_USER_LOG
-  const parsed = parseLogToDashboard(log)
+  const profile = db.prepare('SELECT user_id FROM athlete_profiles WHERE user_id = ?').get(req.user.sub)
+  const goal = db.prepare("SELECT id FROM goals WHERE user_id = ? AND status = 'active' LIMIT 1").get(req.user.sub)
   res.json({
     hasApiKey: !!s.anthropic_api_key,
-    isNewUser: parsed.isNewUser,
+    isNewUser: !profile && !goal,
     hasGarminTokens: !!s.garmin_oauth2_token,
   })
 })
