@@ -19,8 +19,8 @@ export default function Settings() {
       .then(d => { setSettings(d); setLoading(false) })
       .catch(() => setLoading(false))
     fetch('/api/garmin-status', { headers: h })
-      .then(r => r.json())
-      .then(d => setGarminStatus(d))
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d) setGarminStatus(d) })
       .catch(() => {})
   }, [])
 

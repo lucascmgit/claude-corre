@@ -136,8 +136,8 @@ export default function Plan() {
   function load() {
     const headers = getAuthHeader()
     Promise.all([
-      fetch('/api/plan', { headers }).then(r => r.json()),
-      fetch('/api/prescriptions?limit=10', { headers }).then(r => r.json()).catch(() => ({ prescriptions: [] })),
+      fetch('/api/plan', { headers }).then(r => r.ok ? r.json() : null),
+      fetch('/api/prescriptions?limit=10', { headers }).then(r => r.ok ? r.json() : { prescriptions: [] }).catch(() => ({ prescriptions: [] })),
     ]).then(([plan, prescs]) => {
       setPlanData(plan)
       setPrescriptions(prescs.prescriptions || [])
@@ -166,14 +166,15 @@ export default function Plan() {
     )
   }
 
-  const { plan, phases, currentPhase } = planData
+  const { plan, phases = [], currentPhase } = planData
+  if (!plan) return <div className="dim" style={{ padding: '24px' }}>No plan data available.</div>
   let planJson = null
-  try { planJson = JSON.parse(plan.plan_json) } catch {}
+  try { planJson = plan.plan_json ? JSON.parse(plan.plan_json) : null } catch {}
   const adjustments = planJson?.adjustment_history || planJson?.adjustments || []
 
-  const totalWeeks = plan.total_weeks
-  const startDate = new Date(plan.start_date)
-  const weeksElapsed = Math.floor((Date.now() - startDate.getTime()) / (7 * 86400000))
+  const totalWeeks = plan.total_weeks || 0
+  const startDate = plan.start_date ? new Date(plan.start_date) : new Date()
+  const weeksElapsed = Math.max(0, Math.floor((Date.now() - startDate.getTime()) / (7 * 86400000)))
 
   return (
     <div>

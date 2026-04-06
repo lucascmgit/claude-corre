@@ -43,7 +43,10 @@ export default function Goals() {
           description: description || `${dist}${targetTime ? ' in ' + targetTime : ''}${targetDate ? ' by ' + targetDate : ''}`,
         }),
       })
-      if (!res.ok) throw new Error((await res.json()).error || 'Failed')
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || `Server error ${res.status}`)
+      }
       setMsg('Goal set. The coach will create a training plan on your next interaction.')
       setRaceDistance(''); setCustomDistance(''); setTargetTime(''); setTargetDate(''); setDescription('')
       load()

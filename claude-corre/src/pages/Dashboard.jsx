@@ -322,17 +322,16 @@ export default function Dashboard() {
     const headers = getAuthHeader()
     // Fetch both legacy dashboard and new structured data
     Promise.all([
-      fetch('/api/dashboard', { headers }).then(r => r.json()),
-      fetch('/api/prescriptions?status=pending&limit=1', { headers }).then(r => r.json()).catch(() => ({ prescriptions: [] })),
-      fetch('/api/structured-activities?limit=1', { headers }).then(r => r.json()).catch(() => ({ activities: [] })),
+      fetch('/api/dashboard', { headers }).then(r => r.ok ? r.json() : null),
+      fetch('/api/prescriptions?status=pending&limit=1', { headers }).then(r => r.ok ? r.json() : { prescriptions: [] }).catch(() => ({ prescriptions: [] })),
+      fetch('/api/structured-activities?limit=1', { headers }).then(r => r.ok ? r.json() : { activities: [] }).catch(() => ({ activities: [] })),
     ]).then(([d, prescs, acts]) => {
-      setData(d)
+      if (d) setData(d)
       if (prescs.prescriptions?.[0]) setPendingPrescription(prescs.prescriptions[0])
-      // Fetch evaluation for latest activity
       if (acts.activities?.[0]?.id) {
         fetch(`/api/structured-activities/${acts.activities[0].id}`, { headers })
-          .then(r => r.json())
-          .then(d => { if (d.evaluation) setLatestEval(d.evaluation) })
+          .then(r => r.ok ? r.json() : null)
+          .then(d => { if (d?.evaluation) setLatestEval(d.evaluation) })
           .catch(() => {})
       }
       setLoading(false)

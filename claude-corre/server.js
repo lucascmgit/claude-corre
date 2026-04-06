@@ -36,10 +36,6 @@ setInterval(() => {
 
 // Legacy prompts removed in v2 — coaching now handled by server/coach-loop.js with tool_use
 
-function todayStr() {
-  return new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
-}
-
 // ── App setup ─────────────────────────────────────────────────────────────────
 
 const app = express()
@@ -168,16 +164,20 @@ function buildDashboard(db, userId) {
 }
 
 app.get('/api/dashboard', requireAuth, async (req, res) => {
-  const db = getDb()
-  const parsed = buildDashboard(db, req.user.sub)
-  const s = getSettings(req.user.sub)
-  parsed.hasGarminTokens = !!s.garmin_oauth2_token
-  parsed.garminTokenDaysOld = s.garmin_oauth2_saved_at ? Math.floor((Date.now() - s.garmin_oauth2_saved_at) / 86_400_000) : null
-  // Proactively refresh Garmin token on dashboard load (non-blocking)
-  if (s.garmin_oauth2_token) {
-    ensureFreshGarminToken(req.user.sub).catch(() => {})
+  try {
+    const db = getDb()
+    const parsed = buildDashboard(db, req.user.sub)
+    const s = getSettings(req.user.sub)
+    parsed.hasGarminTokens = !!s.garmin_oauth2_token
+    parsed.garminTokenDaysOld = s.garmin_oauth2_saved_at ? Math.floor((Date.now() - s.garmin_oauth2_saved_at) / 86_400_000) : null
+    // Proactively refresh Garmin token on dashboard load (non-blocking)
+    if (s.garmin_oauth2_token) {
+      ensureFreshGarminToken(req.user.sub).catch(() => {})
+    }
+    res.json(parsed)
+  } catch (e) {
+    res.status(500).json({ error: `Dashboard error: ${e.message}` })
   }
-  res.json(parsed)
 })
 
 // ── Training log (derived from structured data) ──────────────────────────────
@@ -634,7 +634,8 @@ app.get('/api/settings', requireAuth, (req, res) => {
 
 // ── Garmin token status ──────────────────────────────────────────────────────
 
-app.get('/api/garmin-status', requireAuth, async (req, res) => {
+app.get('/api/garmin-status', requireAuth, (req, res) => {
+  try {
   const { oauth1, oauth2 } = getGarminTokens(req.user.sub)
   const s = getSettings(req.user.sub)
   const now = Math.floor(Date.now() / 1000)
@@ -669,16 +670,19 @@ app.get('/api/garmin-status', requireAuth, async (req, res) => {
   }
 
   res.json(status)
+  } catch (e) { res.status(500).json({ error: e.message }) }
 })
 
 // Force a token refresh (for manual troubleshooting)
 app.post('/api/garmin-refresh', requireAuth, async (req, res) => {
-  const fresh = await refreshGarminToken(req.user.sub)
-  if (fresh) {
-    res.json({ ok: true, message: 'Token refreshed successfully.' })
-  } else {
-    res.status(500).json({ error: 'Refresh failed. Re-run browser_auth.py.' })
-  }
+  try {
+    const fresh = await refreshGarminToken(req.user.sub)
+    if (fresh) {
+      res.json({ ok: true, message: 'Token refreshed successfully.' })
+    } else {
+      res.status(500).json({ error: 'Refresh failed. Re-run browser_auth.py.' })
+    }
+  } catch (e) { res.status(500).json({ error: e.message }) }
 })
 
 // ── Onboarding helpers ────────────────────────────────────────────────────────
