@@ -189,6 +189,7 @@ function Step2Profile({ onDone, onBack }) {
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [profileSaved, setProfileSaved] = useState(false)
+  const [planCreated, setPlanCreated] = useState(false)
   const bottomRef = useRef()
   const startedRef = useRef(false)
 
@@ -196,7 +197,7 @@ function Step2Profile({ onDone, onBack }) {
   useEffect(() => {
     if (startedRef.current) return
     startedRef.current = true
-    sendToCoach("I'm new here. Please set up my running profile from scratch. Ask me what you need to know.")
+    sendToCoach("I'm new here. Please set up my running profile and training plan from scratch. Ask me about my background, fitness, goals, and availability — then create my profile, set my goal, and build a periodized training plan.")
   }, [])
 
   useEffect(() => {
@@ -237,11 +238,19 @@ function Step2Profile({ onDone, onBack }) {
           let evt
           try { evt = JSON.parse(line.slice(6)) } catch { continue }
           if (evt.error) throw new Error(evt.error)
-          if (evt.chunk) {
-            const display = (evt.chunk)
+          if (evt.tool) {
+            const toolLabel = evt.tool.replace(/_/g, ' ')
+            if (evt.tool === 'create_training_plan') setPlanCreated(true)
+            if (evt.tool === 'update_athlete_profile') setProfileSaved(true)
             setMessages(prev => {
               const last = prev[prev.length - 1]
-              return [...prev.slice(0, -1), { ...last, content: last.content + display }]
+              return [...prev.slice(0, -1), { ...last, content: last.content + `\n*[${toolLabel}...]*\n` }]
+            })
+          }
+          if (evt.chunk) {
+            setMessages(prev => {
+              const last = prev[prev.length - 1]
+              return [...prev.slice(0, -1), { ...last, content: last.content + evt.chunk }]
             })
           }
           if (evt.done && evt.logUpdated) {
@@ -256,12 +265,8 @@ function Step2Profile({ onDone, onBack }) {
     setLoading(false)
   }
 
-  // Strip markdown code blocks from display
   function displayContent(content) {
-    return content
-      .replace(/```(?:markdown)?\s*\r?\n[\s\S]*?```/g, '')
-      .replace(/```(?:markdown)?\s*\r?\n[\s\S]+$/, '')
-      .trim()
+    return content.trim()
   }
 
   return (
@@ -278,7 +283,10 @@ function Step2Profile({ onDone, onBack }) {
       <div className="term-box">
         <div className="term-box-title">
           <span>COACH TERMINAL</span>
-          {profileSaved && <span className="status-ok" style={{ fontSize: '12px' }}>✓ PROFILE SAVED</span>}
+          <div style={{ display: 'flex', gap: '8px' }}>
+            {profileSaved && <span className="status-ok" style={{ fontSize: '12px' }}>✓ PROFILE</span>}
+            {planCreated && <span className="status-ok" style={{ fontSize: '12px' }}>✓ PLAN</span>}
+          </div>
         </div>
         <div className="term-box-body">
           <div className="term-output" style={{ maxHeight: '420px', marginBottom: '12px' }}>

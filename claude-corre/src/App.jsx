@@ -8,6 +8,8 @@ import About from './pages/About.jsx'
 import Login from './pages/Login.jsx'
 import Settings from './pages/Settings.jsx'
 import Onboarding from './pages/Onboarding.jsx'
+import Goals from './pages/Goals.jsx'
+import Plan from './pages/Plan.jsx'
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth()
@@ -32,12 +34,14 @@ function AppShell() {
     <div className="app">
       <div className="logo-header">
         <div className="logo-title">CLAUDE CORRE</div>
-        <div className="header-tagline">// AI RUNNING COACH TERMINAL v1.0</div>
+        <div className="header-tagline">// AI RUNNING COACH TERMINAL v2.0</div>
       </div>
       <div className="sep">{'─'.repeat(72)}</div>
 
       <nav className="nav">
         <NavLink to="/"         className={({isActive}) => 'nav-item' + (isActive ? ' active' : '')} end>[DASHBOARD]</NavLink>
+        <NavLink to="/plan"     className={({isActive}) => 'nav-item' + (isActive ? ' active' : '')}>[PLAN]</NavLink>
+        <NavLink to="/goals"    className={({isActive}) => 'nav-item' + (isActive ? ' active' : '')}>[GOALS]</NavLink>
         <NavLink to="/upload"   className={({isActive}) => 'nav-item' + (isActive ? ' active' : '')}>[UPLOAD RUN]</NavLink>
         <NavLink to="/coach"    className={({isActive}) => 'nav-item' + (isActive ? ' active' : '')}>[ASK COACH]</NavLink>
         <NavLink to="/log"      className={({isActive}) => 'nav-item' + (isActive ? ' active' : '')}>[TRAINING LOG]</NavLink>
@@ -48,6 +52,8 @@ function AppShell() {
       <Routes>
         <Route path="/"         element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
         <Route path="/onboard"  element={<ProtectedRoute><Onboarding /></ProtectedRoute>} />
+        <Route path="/plan"     element={<ProtectedRoute><Plan /></ProtectedRoute>} />
+        <Route path="/goals"    element={<ProtectedRoute><Goals /></ProtectedRoute>} />
         <Route path="/upload"   element={<ProtectedRoute><Upload /></ProtectedRoute>} />
         <Route path="/coach"    element={<ProtectedRoute><Coach /></ProtectedRoute>} />
         <Route path="/log"      element={<ProtectedRoute><TrainingLog /></ProtectedRoute>} />
@@ -59,7 +65,7 @@ function AppShell() {
       <footer className="footer">
         <span>{user.email}</span>
         <span> // </span>
-        <span>CLAUDE CORRE v1.0 // MADE BY LUCAS MARTINELLI // {new Date().getFullYear()}</span>
+        <span>CLAUDE CORRE v2.0 // MADE BY LUCAS MARTINELLI // {new Date().getFullYear()}</span>
       </footer>
     </div>
   )
