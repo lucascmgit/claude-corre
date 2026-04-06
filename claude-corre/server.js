@@ -92,23 +92,34 @@ When given a Garmin CSV activity file, you must:
    - Identify cadence trend (target 170+ spm)
    - State clearly whether the athlete stayed in the prescribed zone
    - State the physiological consequence of any zone violation
+   - WALKING vs RUNNING: Prescribed sessions often include a walking warmup and cooldown.
+     Separate walking segments (pace >8:00/km or labeled Walk) from running segments.
+     Only compare RUNNING distance to the prescribed running distance.
+     Never penalize the athlete for total distance exceeding the prescribed running distance
+     when the excess comes from walking warmup/cooldown.
 
 2. PRESCRIBE the next session:
    - Based on this run AND the current training log
    - Include: distance, HR target, estimated pace, execution cue, science rationale (2-4 sentences with citation)
    - Format under a "## NEXT PRESCRIBED SESSION" heading
 
-3. UPDATE the training log:
-   - Provide the FULL updated training log in a markdown code block
-   - Add this run to the Activity Log table
+3. UPDATE the training log — CRITICAL:
+   - You MUST output the FULL updated training log in a markdown code block at the END of your response.
+   - This is how the app saves your analysis. If you skip it, the run will not be recorded.
+   - Add this run to the Activity Log table (running distance only, exclude walking warmup/cooldown)
    - Update Coach Notes
    - Rewrite Prescribed Sessions with the new prescription
+   - Format: \`\`\`markdown\\n[FULL LOG HERE]\\n\`\`\`
 
 Key principles:
 - Connective tissue adapts 3-5x slower than cardio (Magnusson et al., 2010)
 - 80/20 rule: 80% Z2 (Seiler, 2010)
 - 10% weekly volume increase max (Buist et al., 2010)
 - Heat: adjust HR targets down 5-8 bpm in 30C+`
+
+function todayStr() {
+  return new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
+}
 
 // ── App setup ─────────────────────────────────────────────────────────────────
 
@@ -484,7 +495,7 @@ app.post('/api/ask-coach', requireAuth, async (req, res) => {
     const stream = client.messages.stream({
       model: 'claude-sonnet-4-5',
       max_tokens: 8192,
-      system: COACH_SYSTEM_PROMPT + '\n\n---\nTRAINING LOG:\n' + log,
+      system: COACH_SYSTEM_PROMPT + `\n\nToday is: ${todayStr()}\n\n---\nTRAINING LOG:\n` + log,
       messages: [...safeHistory, { role: 'user', content: question }],
     })
 
@@ -535,8 +546,8 @@ app.post('/api/upload-activity', requireAuth, async (req, res) => {
     const stream = client.messages.stream({
       model: 'claude-sonnet-4-5',
       max_tokens: 8192,
-      system: UPLOAD_SYSTEM_PROMPT + '\n\n---\nCURRENT TRAINING LOG:\n' + log,
-      messages: [{ role: 'user', content: `Analyze this Garmin CSV activity (filename: ${filename}):\n\n\`\`\`csv\n${csv.slice(0, 8000)}\n\`\`\`` }],
+      system: UPLOAD_SYSTEM_PROMPT + `\n\nToday is: ${todayStr()}\n\n---\nCURRENT TRAINING LOG:\n` + log,
+      messages: [{ role: 'user', content: `Analyze this Garmin CSV activity (filename: ${filename}):\n\n\`\`\`csv\n${csv.slice(0, 15000)}\n\`\`\`` }],
     })
 
     let fullText = ''
@@ -886,8 +897,8 @@ app.post('/api/import-garmin', requireAuth, async (req, res) => {
     const stream = client.messages.stream({
       model: 'claude-sonnet-4-5',
       max_tokens: 8192,
-      system: UPLOAD_SYSTEM_PROMPT + '\n\n---\nCURRENT TRAINING LOG:\n' + log,
-      messages: [{ role: 'user', content: `Analyze this Garmin CSV activity (filename: ${filename}):\n\n\`\`\`csv\n${csv.slice(0, 8000)}\n\`\`\`` }],
+      system: UPLOAD_SYSTEM_PROMPT + `\n\nToday is: ${todayStr()}\n\n---\nCURRENT TRAINING LOG:\n` + log,
+      messages: [{ role: 'user', content: `Analyze this Garmin CSV activity (filename: ${filename}):\n\n\`\`\`csv\n${csv.slice(0, 15000)}\n\`\`\`` }],
     })
 
     let fullText = ''
