@@ -109,14 +109,15 @@ export default function Coach() {
 
           if (evt.error) throw new Error(evt.error)
 
+          if (evt.tool) {
+            // Show tool usage as a subtle status line
+            const toolLabel = evt.tool.replace(/_/g, ' ')
+            setMessages(prev => [...prev.slice(0, -1), { role: 'assistant', content: rawText ? rawText + `\n\n*[${toolLabel}...]*` : `*[${toolLabel}...]*` }])
+          }
+
           if (evt.chunk) {
             rawText += evt.chunk
-            // Strip code block from displayed text as it streams in
-            const display = rawText
-              .replace(/```(?:markdown)?\s*\r?\n[\s\S]*?```/g, '')
-              .replace(/```(?:markdown)?\s*\r?\n[\s\S]+$/, '')
-              .trim()
-            setMessages(prev => [...prev.slice(0, -1), { role: 'assistant', content: display }])
+            setMessages(prev => [...prev.slice(0, -1), { role: 'assistant', content: rawText }])
           }
 
           if (evt.done) {
@@ -153,7 +154,7 @@ export default function Coach() {
             {lastLogStatus === 'not-saved' && (
               <span style={{ fontSize: '12px', color: '#666' }}>◌ LOG NOT UPDATED</span>
             )}
-            <span className="dim">// claude sonnet</span>
+            <span className="dim">// claude sonnet 4.6</span>
           </div>
         </div>
         <div className="term-box-body">

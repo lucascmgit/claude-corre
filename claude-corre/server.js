@@ -9,6 +9,8 @@ import Anthropic from '@anthropic-ai/sdk'
 import { initDb, getDb } from './server/db.js'
 import { encrypt, decrypt } from './server/crypto.js'
 import { NEW_USER_LOG } from './server/log.js'
+import { backfillAll } from './server/backfill.js'
+import { runCoachLoop } from './server/coach-loop.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const PORT = process.env.PORT || 3001
@@ -291,6 +293,153 @@ app.post('/api/training-log', requireAuth, (req, res) => {
   res.json({ ok: true })
 })
 
+// ── Structured data endpoints (v2) ────────────────────────────────────────────
+
+app.get('/api/athlete-profile', requireAuth, (req, res) => {
+  const row = getDb().prepare('SELECT * FROM athlete_profiles WHERE user_id = ?').get(req.user.sub)
+  res.json(row || null)
+})
+
+app.post('/api/athlete-profile', requireAuth, (req, res) => {
+  const db = getDb()
+  const fields = req.body
+  const now = Date.now()
+  db.prepare(`INSERT INTO athlete_profiles
+    (user_id, name, age, weight_kg, height_cm, location, max_hr, resting_hr, previous_peak, injuries, weekly_availability, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(user_id) DO UPDATE SET
+      name=COALESCE(excluded.name, athlete_profiles.name),
+      age=COALESCE(excluded.age, athlete_profiles.age),
+      weight_kg=COALESCE(excluded.weight_kg, athlete_profiles.weight_kg),
+      height_cm=COALESCE(excluded.height_cm, athlete_profiles.height_cm),
+      location=COALESCE(excluded.location, athlete_profiles.location),
+      max_hr=COALESCE(excluded.max_hr, athlete_profiles.max_hr),
+      resting_hr=COALESCE(excluded.resting_hr, athlete_profiles.resting_hr),
+      previous_peak=COALESCE(excluded.previous_peak, athlete_profiles.previous_peak),
+      injuries=COALESCE(excluded.injuries, athlete_profiles.injuries),
+      weekly_availability=COALESCE(excluded.weekly_availability, athlete_profiles.weekly_availability),
+      updated_at=excluded.updated_at
+  `).run(
+    req.user.sub, fields.name || null, fields.age || null, fields.weight_kg || null,
+    fields.height_cm || null, fields.location || null, fields.max_hr || null,
+    fields.resting_hr || null, fields.previous_peak || null, fields.injuries || null,
+    fields.weekly_availability ? JSON.stringify(fields.weekly_availability) : null, now
+  )
+  res.json({ ok: true })
+})
+
+app.get('/api/goals', requireAuth, (req, res) => {
+  const goals = getDb().prepare('SELECT * FROM goals WHERE user_id = ? ORDER BY created_at DESC').all(req.user.sub)
+  res.json({ goals })
+})
+
+app.get('/api/goals/active', requireAuth, (req, res) => {
+  const goal = getDb().prepare("SELECT * FROM goals WHERE user_id = ? AND status = 'active' ORDER BY created_at DESC LIMIT 1").get(req.user.sub)
+  res.json(goal || null)
+})
+
+app.post('/api/goals', requireAuth, (req, res) => {
+  const db = getDb()
+  const { race_distance, target_time, target_date, description } = req.body
+  if (!description && !race_distance) return res.status(400).json({ error: 'Goal description or race distance required' })
+  // Deactivate any current active goal
+  db.prepare("UPDATE goals SET status = 'superseded' WHERE user_id = ? AND status = 'active'").run(req.user.sub)
+  const id = randomUUID()
+  db.prepare('INSERT INTO goals (id, user_id, race_distance, target_time, target_date, description, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(id, req.user.sub, race_distance || null, target_time || null, target_date || null, description || null, 'active', Date.now())
+  res.json({ id, status: 'active' })
+})
+
+app.get('/api/structured-activities', requireAuth, (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit) || 20, 100)
+  const offset = parseInt(req.query.offset) || 0
+  const activities = getDb().prepare(
+    'SELECT * FROM activities WHERE user_id = ? ORDER BY activity_date DESC LIMIT ? OFFSET ?'
+  ).all(req.user.sub, limit, offset)
+  res.json({ activities })
+})
+
+app.get('/api/structured-activities/:id', requireAuth, (req, res) => {
+  const activity = getDb().prepare('SELECT * FROM activities WHERE id = ? AND user_id = ?').get(req.params.id, req.user.sub)
+  if (!activity) return res.status(404).json({ error: 'Activity not found' })
+  const evaluation = getDb().prepare('SELECT * FROM workout_evaluations WHERE activity_id = ?').get(activity.id)
+  res.json({ activity, evaluation })
+})
+
+app.get('/api/plan', requireAuth, (req, res) => {
+  const db = getDb()
+  const plan = db.prepare("SELECT * FROM training_plans WHERE user_id = ? AND status = 'active' ORDER BY created_at DESC LIMIT 1").get(req.user.sub)
+  if (!plan) return res.json(null)
+  const phases = db.prepare('SELECT * FROM plan_phases WHERE plan_id = ? ORDER BY phase_order').all(plan.id)
+  const currentPhase = phases.find(p => p.status === 'active') || null
+  res.json({ plan, phases, currentPhase })
+})
+
+app.get('/api/prescriptions', requireAuth, (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit) || 5, 50)
+  const status = req.query.status || null // 'pending', 'completed', or null for all
+  let query = 'SELECT * FROM prescribed_sessions WHERE user_id = ?'
+  const params = [req.user.sub]
+  if (status) { query += ' AND status = ?'; params.push(status) }
+  query += ' ORDER BY prescribed_date DESC LIMIT ?'
+  params.push(limit)
+  res.json({ prescriptions: getDb().prepare(query).all(...params) })
+})
+
+app.get('/api/weekly-summaries', requireAuth, (req, res) => {
+  const weeks = Math.min(parseInt(req.query.weeks) || 8, 52)
+  const summaries = getDb().prepare(
+    'SELECT * FROM weekly_summaries WHERE user_id = ? ORDER BY week_start DESC LIMIT ?'
+  ).all(req.user.sub, weeks)
+  res.json({ summaries })
+})
+
+app.get('/api/training-load', requireAuth, (req, res) => {
+  const db = getDb()
+  const now = new Date()
+  const d7 = new Date(now - 7 * 86400000).toISOString().split('T')[0]
+  const d28 = new Date(now - 28 * 86400000).toISOString().split('T')[0]
+  const acute = db.prepare(
+    "SELECT COALESCE(SUM(duration_s * CASE WHEN avg_hr > 0 THEN avg_hr / 100.0 ELSE 1 END), 0) as load, COUNT(*) as sessions FROM activities WHERE user_id = ? AND activity_date >= ?"
+  ).get(req.user.sub, d7)
+  const chronic = db.prepare(
+    "SELECT COALESCE(SUM(duration_s * CASE WHEN avg_hr > 0 THEN avg_hr / 100.0 ELSE 1 END), 0) as load, COUNT(*) as sessions FROM activities WHERE user_id = ? AND activity_date >= ?"
+  ).get(req.user.sub, d28)
+  const acuteLoad = acute.load
+  const chronicLoad = chronic.load / 4
+  const acwr = chronicLoad > 0 ? parseFloat((acuteLoad / chronicLoad).toFixed(2)) : null
+  res.json({
+    acute_load: Math.round(acuteLoad),
+    chronic_load: Math.round(chronicLoad),
+    acwr,
+    acute_sessions: acute.sessions,
+    chronic_sessions: chronic.sessions,
+    risk_level: acwr === null ? 'unknown' : acwr > 1.5 ? 'high' : acwr > 1.3 ? 'elevated' : acwr < 0.8 ? 'detraining' : 'optimal'
+  })
+})
+
+app.get('/api/training-zones', requireAuth, (req, res) => {
+  const zones = getDb().prepare('SELECT * FROM training_zones WHERE user_id = ? ORDER BY zone_name').all(req.user.sub)
+  res.json({ zones })
+})
+
+app.post('/api/availability-reports', requireAuth, (req, res) => {
+  const { report_type, description, severity, affected_duration } = req.body
+  if (!description) return res.status(400).json({ error: 'Description required' })
+  const id = randomUUID()
+  getDb().prepare(
+    'INSERT INTO availability_reports (id, user_id, report_date, report_type, description, severity, affected_duration, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(id, req.user.sub, new Date().toISOString().split('T')[0], report_type || 'general', description, severity || null, affected_duration || null, Date.now())
+  res.json({ id })
+})
+
+app.get('/api/availability-reports', requireAuth, (req, res) => {
+  const reports = getDb().prepare(
+    'SELECT * FROM availability_reports WHERE user_id = ? ORDER BY created_at DESC LIMIT 20'
+  ).all(req.user.sub)
+  res.json({ reports })
+})
+
 // ── Settings ───────────────────────────────────────────────────────────────────
 
 function getSettings(userId) {
@@ -436,7 +585,7 @@ app.post('/api/validate-key', requireAuth, async (req, res) => {
   if (!apiKey.startsWith('sk-ant-')) return res.status(400).json({ valid: false, error: 'Key must start with "sk-ant-". Make sure you copied the full key.' })
   try {
     const client = new Anthropic({ apiKey: apiKey.trim() })
-    await client.messages.create({ model: 'claude-haiku-4-5', max_tokens: 5, messages: [{ role: 'user', content: 'ping' }] })
+    await client.messages.create({ model: 'claude-haiku-4-5-20251001', max_tokens: 5, messages: [{ role: 'user', content: 'ping' }] })
     // Key is valid — save it encrypted
     const s = getSettings(req.user.sub)
     const encrypted = encrypt(apiKey.trim())
@@ -473,9 +622,6 @@ app.post('/api/ask-coach', requireAuth, async (req, res) => {
   if (!apiKey) return res.status(503).json({ answer: 'No Anthropic API key configured. Go to [SETTINGS] and add your API key.' })
 
   const { question, history = [] } = req.body
-  const logRow = getDb().prepare('SELECT content FROM training_logs WHERE user_id = ?').get(req.user.sub)
-  const log = logRow?.content || NEW_USER_LOG
-  const client = new Anthropic({ apiKey })
 
   const safeHistory = []
   for (const m of history) {
@@ -492,30 +638,22 @@ app.post('/api/ask-coach', requireAuth, async (req, res) => {
   function send(obj) { res.write(`data: ${JSON.stringify(obj)}\n\n`) }
 
   try {
-    const stream = client.messages.stream({
-      model: 'claude-sonnet-4-5',
-      max_tokens: 8192,
-      system: COACH_SYSTEM_PROMPT + `\n\nToday is: ${todayStr()}\n\n---\nTRAINING LOG:\n` + log,
+    const { toolCalls, finalText } = await runCoachLoop({
+      apiKey,
+      userId: req.user.sub,
       messages: [...safeHistory, { role: 'user', content: question }],
+      isUpload: false,
+      onChunk: chunk => send({ chunk }),
+      onToolCall: (name, input) => send({ tool: name }),
     })
 
-    let fullText = ''
-    for await (const event of stream) {
-      if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
-        fullText += event.delta.text
-        send({ chunk: event.delta.text })
-      }
-    }
+    const dataUpdated = toolCalls.some(tc =>
+      ['record_activity', 'write_workout_evaluation', 'prescribe_session',
+       'create_training_plan', 'update_training_plan', 'update_training_zones',
+       'update_athlete_profile'].includes(tc.name)
+    )
 
-    // Extract and save updated training log
-    const logMatch = fullText.match(/```(?:markdown)?\s*\r?\n([\s\S]*?)```/)
-    const truncatedMatch = !logMatch && fullText.match(/```(?:markdown)?\s*\r?\n([\s\S]+)$/)
-    const extracted = logMatch?.[1] || truncatedMatch?.[1]
-    if (extracted) {
-      getDb().prepare('INSERT OR REPLACE INTO training_logs (user_id, content, updated_at) VALUES (?, ?, ?)').run(req.user.sub, extracted.trim(), Date.now())
-    }
-
-    send({ done: true, logUpdated: !!(logMatch || truncatedMatch) })
+    send({ done: true, logUpdated: dataUpdated })
     res.end()
   } catch (e) {
     send({ error: e.message })
@@ -532,10 +670,6 @@ app.post('/api/upload-activity', requireAuth, async (req, res) => {
   const { csv, filename } = req.body
   if (!csv) return res.status(400).json({ error: 'No CSV data' })
 
-  const logRow = getDb().prepare('SELECT content FROM training_logs WHERE user_id = ?').get(req.user.sub)
-  const log = logRow?.content || NEW_USER_LOG
-  const client = new Anthropic({ apiKey })
-
   // Stream via SSE to avoid Railway 60s proxy timeout
   res.setHeader('Content-Type', 'text/event-stream')
   res.setHeader('Cache-Control', 'no-cache')
@@ -543,34 +677,29 @@ app.post('/api/upload-activity', requireAuth, async (req, res) => {
   function send(obj) { res.write(`data: ${JSON.stringify(obj)}\n\n`) }
 
   try {
-    const stream = client.messages.stream({
-      model: 'claude-sonnet-4-5',
-      max_tokens: 8192,
-      system: UPLOAD_SYSTEM_PROMPT + `\n\nToday is: ${todayStr()}\n\n---\nCURRENT TRAINING LOG:\n` + log,
+    const { toolCalls, finalText } = await runCoachLoop({
+      apiKey,
+      userId: req.user.sub,
       messages: [{ role: 'user', content: `Analyze this Garmin CSV activity (filename: ${filename}):\n\n\`\`\`csv\n${csv.slice(0, 15000)}\n\`\`\`` }],
+      isUpload: true,
+      onChunk: chunk => send({ chunk }),
+      onToolCall: (name, input) => send({ tool: name }),
     })
 
-    let fullText = ''
-    for await (const event of stream) {
-      if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
-        fullText += event.delta.text
-        send({ chunk: event.delta.text })
-      }
+    // Find the prescription that was created (if any)
+    const prescCall = toolCalls.find(tc => tc.name === 'prescribe_session')
+    const prescId = prescCall?.result?.prescription_id
+    let prescription = ''
+    if (prescId) {
+      const row = getDb().prepare('SELECT description, rationale FROM prescribed_sessions WHERE id = ?').get(prescId)
+      if (row) prescription = `## NEXT PRESCRIBED SESSION\n\n${row.description}\n\n**Rationale:** ${row.rationale}`
     }
 
-    const prescMatch = fullText.match(/## NEXT PRESCRIBED SESSION([\s\S]*?)(?=\n##|$)/)
-    const logMatch = fullText.match(/```(?:markdown)?\s*\r?\n([\s\S]*?)```/)
-    const truncatedMatch = !logMatch && fullText.match(/```(?:markdown)?\s*\r?\n([\s\S]+)$/)
-    const extracted = logMatch?.[1] || truncatedMatch?.[1]
-    if (extracted) {
-      getDb().prepare('INSERT OR REPLACE INTO training_logs (user_id, content, updated_at) VALUES (?, ?, ?)').run(req.user.sub, extracted.trim(), Date.now())
-    }
+    const dataUpdated = toolCalls.some(tc =>
+      ['record_activity', 'write_workout_evaluation', 'prescribe_session'].includes(tc.name)
+    )
 
-    send({
-      done: true,
-      prescription: prescMatch ? prescMatch[0].trim() : '',
-      logUpdated: !!(logMatch || truncatedMatch),
-    })
+    send({ done: true, prescription, logUpdated: dataUpdated })
     res.end()
   } catch (e) {
     send({ error: e.message })
@@ -762,23 +891,32 @@ app.post('/api/push-workout', requireAuth, async (req, res) => {
   }
   if (!garminOauth2?.access_token) return res.status(503).json({ error: `Token missing access_token field. Re-paste the full oauth2_token.json content in [SETTINGS]. Keys found: ${Object.keys(garminOauth2 || {}).join(', ')}` })
 
-  const { prescription } = req.body
-  if (!prescription || typeof prescription !== 'string') return res.status(400).json({ error: 'No prescription provided.' })
-  const client = new Anthropic({ apiKey })
+  const { prescription, prescription_id } = req.body
+  if (!prescription && !prescription_id) return res.status(400).json({ error: 'No prescription provided.' })
 
-  try {
-    const extract = await client.messages.create({
-      model: 'claude-haiku-4-5',
-      max_tokens: 1200,
-      messages: [{ role: 'user', content: WORKOUT_EXTRACTION_PROMPT + prescription }],
-    })
+  let workoutParams = null
 
-    let workoutParams
+  // Try structured prescription first (has workout_json from tool-use coach)
+  if (prescription_id) {
+    const row = getDb().prepare('SELECT workout_json, description FROM prescribed_sessions WHERE id = ? AND user_id = ?').get(prescription_id, req.user.sub)
+    if (row?.workout_json) {
+      try { workoutParams = JSON.parse(row.workout_json) } catch {}
+    }
+  }
+
+  // Fallback: extract from text prescription via AI
+  if (!workoutParams) {
+    const client = new Anthropic({ apiKey })
+    const prescText = prescription || ''
     try {
+      const extract = await client.messages.create({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 1200,
+        messages: [{ role: 'user', content: WORKOUT_EXTRACTION_PROMPT + prescText }],
+      })
       const raw = extract.content[0].text.match(/\{[\s\S]*\}/)?.[0]
       workoutParams = JSON.parse(raw)
     } catch {
-      // Fallback: safe default for a generic easy run
       workoutParams = {
         name: 'Easy Run',
         description: 'Easy aerobic run. Stay in Z2.',
@@ -788,6 +926,9 @@ app.post('/api/push-workout', requireAuth, async (req, res) => {
           target: { kind: 'hr', low: 130, high: 142 }, description: 'Keep HR 130-142 bpm (Z2)' }],
       }
     }
+  }
+
+  try {
 
     const workout = buildGarminWorkout(workoutParams)
     const isDi = !!garminOauth2.refresh_token
@@ -889,35 +1030,30 @@ app.post('/api/import-garmin', requireAuth, async (req, res) => {
     }
     const csv = await csvRes.text()
 
-    const logRow = getDb().prepare('SELECT content FROM training_logs WHERE user_id = ?').get(req.user.sub)
-    const log = logRow?.content || NEW_USER_LOG
-    const client = new Anthropic({ apiKey })
     const filename = `${activityName || 'activity'}_${activityId}.csv`
 
-    const stream = client.messages.stream({
-      model: 'claude-sonnet-4-5',
-      max_tokens: 8192,
-      system: UPLOAD_SYSTEM_PROMPT + `\n\nToday is: ${todayStr()}\n\n---\nCURRENT TRAINING LOG:\n` + log,
+    const { toolCalls, finalText } = await runCoachLoop({
+      apiKey,
+      userId: req.user.sub,
       messages: [{ role: 'user', content: `Analyze this Garmin CSV activity (filename: ${filename}):\n\n\`\`\`csv\n${csv.slice(0, 15000)}\n\`\`\`` }],
+      isUpload: true,
+      onChunk: chunk => send({ chunk }),
+      onToolCall: (name, input) => send({ tool: name }),
     })
 
-    let fullText = ''
-    for await (const event of stream) {
-      if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
-        fullText += event.delta.text
-        send({ chunk: event.delta.text })
-      }
+    const prescCall = toolCalls.find(tc => tc.name === 'prescribe_session')
+    const prescId = prescCall?.result?.prescription_id
+    let prescription = ''
+    if (prescId) {
+      const row = getDb().prepare('SELECT description, rationale FROM prescribed_sessions WHERE id = ?').get(prescId)
+      if (row) prescription = `## NEXT PRESCRIBED SESSION\n\n${row.description}\n\n**Rationale:** ${row.rationale}`
     }
 
-    const prescMatch = fullText.match(/## NEXT PRESCRIBED SESSION([\s\S]*?)(?=\n##|$)/)
-    const logMatch = fullText.match(/```(?:markdown)?\s*\r?\n([\s\S]*?)```/)
-    const truncatedMatch = !logMatch && fullText.match(/```(?:markdown)?\s*\r?\n([\s\S]+)$/)
-    const extracted = logMatch?.[1] || truncatedMatch?.[1]
-    if (extracted) {
-      getDb().prepare('INSERT OR REPLACE INTO training_logs (user_id, content, updated_at) VALUES (?, ?, ?)').run(req.user.sub, extracted.trim(), Date.now())
-    }
+    const dataUpdated = toolCalls.some(tc =>
+      ['record_activity', 'write_workout_evaluation', 'prescribe_session'].includes(tc.name)
+    )
 
-    send({ done: true, prescription: prescMatch ? prescMatch[0].trim() : '', logUpdated: !!(logMatch || truncatedMatch) })
+    send({ done: true, prescription, logUpdated: dataUpdated })
     res.end()
   } catch (e) {
     send({ error: e.message })
@@ -935,6 +1071,7 @@ if (IS_PROD) {
 // ── Start ──────────────────────────────────────────────────────────────────────
 
 initDb()
+backfillAll(getDb())
 app.listen(PORT, () => {
   console.log(`CLAUDE CORRE server running on http://localhost:${PORT}`)
   if (!IS_PROD) console.log('  Frontend dev server: http://localhost:5173 (run npm run dev separately)')

@@ -137,6 +137,88 @@ function ActivityRow({ act, expanded, onToggle }) {
   )
 }
 
+function TrainingLoadGauge({ load }) {
+  if (!load || load.acwr === null) return null
+  const acwr = load.acwr
+  const label = load.risk_level === 'optimal' ? 'OPTIMAL'
+    : load.risk_level === 'elevated' ? 'ELEVATED'
+    : load.risk_level === 'high' ? 'HIGH RISK'
+    : load.risk_level === 'detraining' ? 'DETRAINING' : 'UNKNOWN'
+  const color = load.risk_level === 'optimal' ? 'status-ok'
+    : load.risk_level === 'elevated' ? 'status-warn'
+    : load.risk_level === 'high' ? 'red'
+    : load.risk_level === 'detraining' ? 'status-warn' : 'dim'
+
+  // ASCII gauge: [====|=====|======] with marker
+  const min = 0.4, max = 2.0
+  const pos = Math.min(Math.max((acwr - min) / (max - min), 0), 1)
+  const barWidth = 30
+  const markerPos = Math.round(pos * barWidth)
+  const bar = '='.repeat(markerPos) + '|' + '='.repeat(barWidth - markerPos)
+
+  return (
+    <div className="term-box">
+      <div className="term-box-title">
+        <span>TRAINING LOAD</span>
+        <span className={color}>{label}</span>
+      </div>
+      <div className="term-box-body" style={{ fontFamily: 'var(--font-mono)', fontSize: '13px' }}>
+        <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+          <span className="amber">ACWR</span>
+          <span style={{ color: '#333' }}>[</span>
+          <span className={color}>{bar}</span>
+          <span style={{ color: '#333' }}>]</span>
+          <span className={color}>{acwr.toFixed(2)}</span>
+        </div>
+        <div style={{ marginTop: '4px', display: 'flex', gap: '20px' }}>
+          <span className="dim">Acute (7d): {load.acute_load} · {load.acute_sessions} sessions</span>
+          <span className="dim">Chronic (28d avg): {load.chronic_load} · {load.chronic_sessions} sessions</span>
+        </div>
+        <div style={{ marginTop: '2px', fontSize: '11px', color: '#444' }}>
+          Safe: 0.8-1.3 · Elevated: 1.3-1.5 · High risk: &gt;1.5 · Detraining: &lt;0.8
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function LatestEvaluation({ evaluation }) {
+  if (!evaluation) return null
+  const sections = [
+    { key: 'standalone_analysis', label: 'STANDALONE ANALYSIS' },
+    { key: 'prescription_comparison', label: 'PRESCRIPTION COMPARISON' },
+    { key: 'medium_term_trends', label: 'MEDIUM-TERM TRENDS' },
+    { key: 'goal_progress', label: 'GOAL PROGRESS' },
+    { key: 'coach_notes', label: 'COACH NOTES' },
+  ]
+  return (
+    <div className="term-box">
+      <div className="term-box-title">
+        <span>LATEST EVALUATION</span>
+        {evaluation.performance_rating && (
+          <span className={evaluation.performance_rating === 'above_target' ? 'status-ok' : evaluation.performance_rating === 'on_target' ? 'amber' : 'red'}>
+            {evaluation.performance_rating.replace('_', ' ').toUpperCase()}
+          </span>
+        )}
+      </div>
+      <div className="term-box-body" style={{ fontSize: '13px' }}>
+        {evaluation.adherence_score != null && (
+          <div style={{ marginBottom: '8px' }}>
+            <span className="amber">ADHERENCE: </span>
+            <span>{evaluation.adherence_score}/100</span>
+          </div>
+        )}
+        {sections.map(({ key, label }) => evaluation[key] ? (
+          <div key={key} style={{ marginBottom: '8px' }}>
+            <div className="amber" style={{ fontSize: '11px', marginBottom: '2px' }}>{label}</div>
+            <div className="dim" style={{ lineHeight: '1.5' }}>{evaluation[key]}</div>
+          </div>
+        ) : null)}
+      </div>
+    </div>
+  )
+}
+
 export default function Dashboard() {
   const { getAuthHeader } = useAuth()
   const navigate = useNavigate()
@@ -145,15 +227,34 @@ export default function Dashboard() {
   const [expandedActivity, setExpandedActivity] = useState(null)
   const [garminStatus, setGarminStatus] = useState(null) // null | 'pushing' | 'ok' | 'error'
   const [garminMsg, setGarminMsg] = useState('')
+  const [trainingLoad, setTrainingLoad] = useState(null)
+  const [latestEval, setLatestEval] = useState(null)
+  const [pendingPrescription, setPendingPrescription] = useState(null)
 
   const onboardChecked = useRef(false)
 
   function load() {
     setLoading(true)
-    fetch('/api/dashboard', { headers: getAuthHeader() })
-      .then(r => r.json())
-      .then(d => { setData(d); setLoading(false) })
-      .catch(() => setLoading(false))
+    const headers = getAuthHeader()
+    // Fetch both legacy dashboard and new structured data
+    Promise.all([
+      fetch('/api/dashboard', { headers }).then(r => r.json()),
+      fetch('/api/prescriptions?status=pending&limit=1', { headers }).then(r => r.json()).catch(() => ({ prescriptions: [] })),
+      fetch('/api/structured-activities?limit=1', { headers }).then(r => r.json()).catch(() => ({ activities: [] })),
+    ]).then(([d, prescs, acts]) => {
+      setData(d)
+      if (prescs.prescriptions?.[0]) setPendingPrescription(prescs.prescriptions[0])
+      // Fetch evaluation for latest activity
+      if (acts.activities?.[0]?.id) {
+        fetch(`/api/structured-activities/${acts.activities[0].id}`, { headers })
+          .then(r => r.json())
+          .then(d => { if (d.evaluation) setLatestEval(d.evaluation) })
+          .catch(() => {})
+      }
+      setLoading(false)
+    }).catch(() => setLoading(false))
+    // Fetch training load separately (non-blocking)
+    fetch('/api/training-load', { headers }).then(r => r.ok ? r.json() : null).then(d => { if (d) setTrainingLoad(d) }).catch(() => {})
   }
 
   useEffect(() => {
@@ -177,7 +278,10 @@ export default function Dashboard() {
       const res = await fetch('/api/push-workout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
-        body: JSON.stringify({ prescription: data?.prescription }),
+        body: JSON.stringify({
+          prescription: pendingPrescription?.description || data?.prescription,
+          prescription_id: pendingPrescription?.id,
+        }),
       })
       const d = await res.json()
       if (!res.ok) throw new Error(d.error || `HTTP ${res.status}`)
@@ -261,6 +365,12 @@ export default function Dashboard() {
           </div>
         </div>
       )}
+
+      {/* Training load gauge */}
+      <TrainingLoadGauge load={trainingLoad} />
+
+      {/* Latest workout evaluation */}
+      <LatestEvaluation evaluation={latestEval} />
 
       {/* Training zones */}
       {zones.length > 0 && (

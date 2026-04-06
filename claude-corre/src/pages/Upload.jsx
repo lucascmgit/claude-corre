@@ -16,7 +16,7 @@ function Spinner() {
 }
 
 // Reads an SSE stream and calls onChunk/onDone/onError
-async function readSse(res, { onChunk, onDone, onError }) {
+async function readSse(res, { onChunk, onDone, onError, onTool }) {
   const reader = res.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
@@ -31,6 +31,7 @@ async function readSse(res, { onChunk, onDone, onError }) {
       let evt
       try { evt = JSON.parse(line.slice(6)) } catch { continue }
       if (evt.error) { onError(evt.error); return }
+      if (evt.tool && onTool) onTool(evt.tool)
       if (evt.chunk) onChunk(evt.chunk)
       if (evt.done) onDone(evt)
     }
@@ -81,11 +82,10 @@ function GarminSync({ hasGarminTokens, onAnalysisResult }) {
       await readSse(res, {
         onChunk: chunk => {
           text += chunk
-          const display = text
-            .replace(/```(?:markdown)?\s*\r?\n[\s\S]*?```/g, '')
-            .replace(/```(?:markdown)?\s*\r?\n[\s\S]+$/, '')
-            .trim()
-          setOutput(display)
+          setOutput(text)
+        },
+        onTool: name => {
+          setOutput(prev => prev + `\n> [${name.replace(/_/g, ' ')}...]`)
         },
         onDone: evt => {
           if (evt.prescription) setPrescription(evt.prescription)
@@ -297,11 +297,10 @@ export default function Upload() {
       await readSse(res, {
         onChunk: chunk => {
           fullText += chunk
-          const display = fullText
-            .replace(/```(?:markdown)?\s*\r?\n[\s\S]*?```/g, '')
-            .replace(/```(?:markdown)?\s*\r?\n[\s\S]+$/, '')
-            .trim()
-          setOutput(display)
+          setOutput(fullText)
+        },
+        onTool: name => {
+          setOutput(prev => prev + `\n> [${name.replace(/_/g, ' ')}...]`)
         },
         onDone: evt => {
           if (evt.prescription) setPrescription(evt.prescription)
