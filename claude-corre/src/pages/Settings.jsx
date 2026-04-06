@@ -156,28 +156,57 @@ export default function Settings() {
             </div>
           )}
 
-          <div className="dim" style={{ fontSize: '12px', marginBottom: '14px' }}>
-            Push workouts to your watch and sync activities from Garmin Connect.<br />
-            Run this in Terminal on your computer:
-          </div>
+          <div style={{ fontSize: '13px', lineHeight: '1.8' }}>
+            <div style={{ color: '#aaa', marginBottom: '12px' }}>
+              Push workouts to your watch and sync activities from Garmin Connect.
+              This requires a one-time setup on your computer (~2 minutes).
+            </div>
 
-          <div style={{ marginBottom: '14px' }}>
-            <code style={{ background: '#111', padding: '6px 10px', display: 'inline-block', color: '#0f0', fontSize: '13px' }}>
-              python3 browser_auth.py
-            </code>
-            <div className="dim" style={{ fontSize: '11px', marginTop: '4px' }}>
-              Requires: <code style={{ color: '#888' }}>pip install playwright requests requests-oauthlib && playwright install chromium</code>
+            <div style={{ marginBottom: '16px' }}>
+              <div className="amber" style={{ fontSize: '12px', marginBottom: '6px' }}>STEP 1 — INSTALL DEPENDENCIES (first time only)</div>
+              <div className="dim" style={{ fontSize: '12px', marginBottom: '4px' }}>
+                You need Python 3. Check with: <code style={{ color: '#aaa', background: '#111', padding: '1px 4px' }}>python3 --version</code>
+              </div>
+              <div style={{ background: '#0d0d0d', border: '1px solid #2a2a2a', padding: '8px 12px', fontFamily: 'var(--font-mono)', fontSize: '12px', color: '#0f0' }}>
+                pip install playwright requests requests-oauthlib && playwright install chromium
+              </div>
+            </div>
+
+            <div style={{ marginBottom: '16px' }}>
+              <div className="amber" style={{ fontSize: '12px', marginBottom: '6px' }}>STEP 2 — DOWNLOAD THE AUTH SCRIPT</div>
+              <div className="dim" style={{ fontSize: '12px', marginBottom: '4px' }}>
+                Download <code style={{ color: '#aaa' }}>browser_auth.py</code> from the project repo:
+              </div>
+              <div style={{ background: '#0d0d0d', border: '1px solid #2a2a2a', padding: '8px 12px', fontFamily: 'var(--font-mono)', fontSize: '12px', color: '#0f0', overflowX: 'auto' }}>
+                curl -O https://raw.githubusercontent.com/lucascmgit/claude-corre/main/browser_auth.py
+              </div>
+            </div>
+
+            <div style={{ marginBottom: '16px' }}>
+              <div className="amber" style={{ fontSize: '12px', marginBottom: '6px' }}>STEP 3 — RUN IT</div>
+              <div style={{ background: '#0d0d0d', border: '1px solid #2a2a2a', padding: '8px 12px', fontFamily: 'var(--font-mono)', fontSize: '12px', color: '#0f0' }}>
+                python3 browser_auth.py
+              </div>
+              <div className="dim" style={{ fontSize: '12px', marginTop: '4px' }}>
+                A Chromium browser window opens automatically. Log in with your Garmin credentials.
+                The window closes by itself when done. The token is copied to your clipboard.
+              </div>
+            </div>
+
+            <div style={{ marginBottom: '16px' }}>
+              <div className="amber" style={{ fontSize: '12px', marginBottom: '6px' }}>STEP 4 — PASTE THE TOKEN BELOW</div>
+              <div className="dim" style={{ fontSize: '12px', marginBottom: '6px' }}>
+                The script copies the token to your clipboard automatically. Just paste here (Cmd+V / Ctrl+V).
+                It looks like: <code style={{ color: '#555', fontSize: '11px' }}>{`{"oauth1":{...},"oauth2":{...}}`}</code>
+              </div>
             </div>
           </div>
 
-          <div style={{ marginBottom: '6px', fontSize: '11px', color: '#555' }}>
-            PASTE TOKEN (output from browser_auth.py)
-          </div>
           <textarea
             className="term-input"
             value={garminTokens}
             onChange={e => setGarminTokens(e.target.value)}
-            placeholder='{"oauth1": {...}, "oauth2": {...}}'
+            placeholder='Paste the token from browser_auth.py here (Cmd+V)'
             style={{ width: '100%', minHeight: '70px', resize: 'vertical', fontFamily: 'var(--font-mono)', fontSize: '11px' }}
           />
           <div style={{ marginTop: '6px', display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -191,6 +220,15 @@ export default function Settings() {
                 [CLEAR]
               </button>
             )}
+          </div>
+
+          <div style={{ marginTop: '14px', fontSize: '12px', color: '#444', borderTop: '1px solid #1a1a1a', paddingTop: '10px' }}>
+            <div className="amber" style={{ fontSize: '11px', marginBottom: '4px' }}>TROUBLESHOOTING</div>
+            <div>• <strong style={{ color: '#666' }}>python3 not found:</strong> Install from <span style={{ color: '#888' }}>python.org</span> or via <code style={{ color: '#888' }}>brew install python</code> (Mac)</div>
+            <div>• <strong style={{ color: '#666' }}>playwright error:</strong> Make sure you ran <code style={{ color: '#888' }}>playwright install chromium</code> after pip install</div>
+            <div>• <strong style={{ color: '#666' }}>Browser doesn&apos;t open:</strong> Try running from a regular terminal, not VS Code</div>
+            <div>• <strong style={{ color: '#666' }}>Login times out:</strong> You have 5 minutes. Complete the login including any MFA prompts</div>
+            <div>• <strong style={{ color: '#666' }}>Token not copied:</strong> Look for the JSON blob printed in the terminal and copy it manually</div>
           </div>
         </div>
       </div>

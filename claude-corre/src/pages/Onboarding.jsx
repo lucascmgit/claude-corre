@@ -408,37 +408,51 @@ function Step3Garmin({ onDone, onBack }) {
         <div className="term-box">
           <div className="term-box-title">CONNECT GARMIN</div>
           <div className="term-box-body" style={{ fontSize: '13px', lineHeight: '1.9' }}>
-            <div style={{ marginBottom: '12px', color: '#888' }}>
-              Run this in your Terminal (takes ~1 minute):
+            <div style={{ marginBottom: '14px', color: '#888' }}>
+              Open Terminal on your computer and run these commands. Takes about 2 minutes.
             </div>
 
-            <div style={{ marginBottom: '8px' }}>
-              <span className="amber">1.</span> Install dependencies (first time only):
-              <div style={{ background: '#0d0d0d', border: '1px solid #2a2a2a', padding: '6px 10px', margin: '4px 0', fontFamily: 'var(--font-mono)', fontSize: '12px', color: '#aaa' }}>
+            <div style={{ marginBottom: '14px' }}>
+              <span className="amber">1.</span> <strong style={{ color: '#ccc' }}>Install dependencies</strong> (first time only):
+              <div style={{ background: '#0d0d0d', border: '1px solid #2a2a2a', padding: '8px 12px', margin: '4px 0', fontFamily: 'var(--font-mono)', fontSize: '12px', color: '#0f0' }}>
                 pip install playwright requests requests-oauthlib && playwright install chromium
+              </div>
+              <div className="dim" style={{ fontSize: '11px' }}>
+                Need Python? Mac: <code style={{ color: '#888' }}>brew install python</code> · Download: python.org
               </div>
             </div>
 
-            <div style={{ marginBottom: '8px' }}>
-              <span className="amber">2.</span> Run the auth script:
-              <div style={{ background: '#0d0d0d', border: '1px solid #2a2a2a', padding: '6px 10px', margin: '4px 0', fontFamily: 'var(--font-mono)', fontSize: '12px', color: '#aaa' }}>
+            <div style={{ marginBottom: '14px' }}>
+              <span className="amber">2.</span> <strong style={{ color: '#ccc' }}>Download the auth script</strong>:
+              <div style={{ background: '#0d0d0d', border: '1px solid #2a2a2a', padding: '8px 12px', margin: '4px 0', fontFamily: 'var(--font-mono)', fontSize: '12px', color: '#0f0', overflowX: 'auto' }}>
+                curl -O https://raw.githubusercontent.com/lucascmgit/claude-corre/main/browser_auth.py
+              </div>
+            </div>
+
+            <div style={{ marginBottom: '14px' }}>
+              <span className="amber">3.</span> <strong style={{ color: '#ccc' }}>Run it</strong>:
+              <div style={{ background: '#0d0d0d', border: '1px solid #2a2a2a', padding: '8px 12px', margin: '4px 0', fontFamily: 'var(--font-mono)', fontSize: '12px', color: '#0f0' }}>
                 python3 browser_auth.py
               </div>
             </div>
 
-            <div style={{ marginBottom: '8px' }}>
-              <span className="amber">3.</span> A browser opens — log in with your Garmin credentials. It closes automatically.
+            <div style={{ marginBottom: '14px' }}>
+              <span className="amber">4.</span> <strong style={{ color: '#ccc' }}>Log in</strong> — a Chromium browser window opens automatically.
+              Sign in with your Garmin Connect email and password.
+              <div className="dim" style={{ fontSize: '11px' }}>
+                The window closes by itself when done. You have 5 minutes.
+              </div>
             </div>
 
-            <div style={{ marginBottom: '12px' }}>
-              <span className="amber">4.</span> The script copies a token to your clipboard. Paste it below:
+            <div style={{ marginBottom: '14px' }}>
+              <span className="amber">5.</span> <strong style={{ color: '#ccc' }}>Paste the token</strong> — the script copies it to your clipboard. Just paste below (Cmd+V / Ctrl+V):
             </div>
 
             <textarea
               className="term-input"
               value={tokenText}
               onChange={e => { setTokenText(e.target.value); setSaveStatus(null) }}
-              placeholder='{"oauth1": {...}, "oauth2": {...}}'
+              placeholder='Paste here — the script copies the token to your clipboard automatically'
               style={{ width: '100%', minHeight: '80px', resize: 'vertical', fontFamily: 'var(--font-mono)', fontSize: '11px' }}
               disabled={saveStatus === 'ok'}
             />
@@ -452,9 +466,14 @@ function Step3Garmin({ onDone, onBack }) {
             {saveStatus === 'error' && <div className="red" style={{ fontSize: '13px', marginTop: '8px' }}>{saveError}</div>}
             {saveStatus === 'ok' && (
               <div className="status-ok" style={{ fontSize: '13px', marginTop: '8px' }}>
-                Garmin connected. Tokens auto-refresh server-side.
+                Garmin connected. Tokens auto-refresh — you only need to do this again if they fully expire.
               </div>
             )}
+
+            <div style={{ marginTop: '14px', fontSize: '12px', color: '#444', borderTop: '1px solid #1a1a1a', paddingTop: '8px' }}>
+              <strong style={{ color: '#555' }}>Not working?</strong> Check that Python 3 is installed, that you ran <code style={{ color: '#666' }}>playwright install chromium</code>,
+              and that you completed the Garmin login before the 5-minute timeout. If the clipboard didn&apos;t work, copy the JSON blob printed in the terminal.
+            </div>
           </div>
         </div>
       )}
