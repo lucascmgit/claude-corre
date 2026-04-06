@@ -9,13 +9,19 @@ export default function Settings() {
   const [msg, setMsg] = useState('')
 
   const [anthropicKey, setAnthropicKey] = useState('')
-  const [garminOauth2, setGarminOauth2] = useState('')
+  const [garminTokens, setGarminTokens] = useState('')
+  const [garminStatus, setGarminStatus] = useState(null)
 
   useEffect(() => {
-    fetch('/api/settings', { headers: getAuthHeader() })
+    const h = getAuthHeader()
+    fetch('/api/settings', { headers: h })
       .then(r => r.json())
       .then(d => { setSettings(d); setLoading(false) })
       .catch(() => setLoading(false))
+    fetch('/api/garmin-status', { headers: h })
+      .then(r => r.json())
+      .then(d => setGarminStatus(d))
+      .catch(() => {})
   }, [])
 
   async function save(field, value) {
@@ -28,12 +34,17 @@ export default function Settings() {
         headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
         body: JSON.stringify({ [field]: value.trim() })
       })
-      if (!res.ok) throw new Error('Save failed')
-      const updated = await fetch('/api/settings', { headers: getAuthHeader() }).then(r => r.json())
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Save failed')
+      const h = getAuthHeader()
+      const updated = await fetch('/api/settings', { headers: h }).then(r => r.json())
       setSettings(updated)
-      setMsg(`${field} saved.`)
+      setMsg('Saved.')
       if (field === 'anthropicApiKey') setAnthropicKey('')
-      if (field === 'garminOauth2Token') setGarminOauth2('')
+      if (field === 'garminTokens') {
+        setGarminTokens('')
+        fetch('/api/garmin-status', { headers: h }).then(r => r.json()).then(d => setGarminStatus(d)).catch(() => {})
+      }
     } catch (e) {
       setMsg(`ERROR: ${e.message}`)
     }
@@ -42,10 +53,11 @@ export default function Settings() {
 
   async function clearField(field) {
     setSaving(field)
+    const bodyField = field === 'garminTokens' ? 'garminTokens' : field
     await fetch('/api/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
-      body: JSON.stringify({ [field]: '' })
+      body: JSON.stringify({ [bodyField]: '' })
     })
     const updated = await fetch('/api/settings', { headers: getAuthHeader() }).then(r => r.json())
     setSettings(updated)
@@ -114,59 +126,72 @@ export default function Settings() {
         </div>
       </div>
 
-      {/* Garmin tokens */}
+      {/* Garmin connection */}
       <div className="term-box">
         <div className="term-box-title">
-          <span>GARMIN TOKEN</span>
-          <Status on={settings?.hasGarminOauth2} />
+          <span>GARMIN CONNECTION</span>
+          {garminStatus && (
+            <span className={
+              garminStatus.health === 'healthy' ? 'status-ok' :
+              garminStatus.health === 'refreshing' ? 'amber' :
+              garminStatus.health === 'not_connected' ? 'dim' : 'red'
+            } style={{ fontSize: '12px' }}>
+              {garminStatus.health === 'healthy' ? '● CONNECTED' :
+               garminStatus.health === 'refreshing' ? '● AUTO-REFRESHING' :
+               garminStatus.health === 'not_connected' ? '○ NOT CONNECTED' :
+               garminStatus.health === 'degraded' ? '● DEGRADED' : '● EXPIRED'}
+            </span>
+          )}
         </div>
         <div className="term-box-body">
+          {garminStatus && garminStatus.health !== 'not_connected' && (
+            <div style={{ marginBottom: '14px', fontSize: '13px' }}>
+              <div>{garminStatus.message}</div>
+              {garminStatus.oauth2ExpiresAt && (
+                <div className="dim" style={{ marginTop: '4px', fontSize: '11px' }}>
+                  Access token expires: {garminStatus.oauth2ExpiresAt}
+                  {garminStatus.refreshTokenExpiresAt && <> · Refresh expires: {garminStatus.refreshTokenExpiresAt}</>}
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="dim" style={{ fontSize: '12px', marginBottom: '14px' }}>
-            Required to push workouts to your watch and fetch past runs.<br />
-            Get a token by running one of these in Terminal:
+            Push workouts to your watch and sync activities from Garmin Connect.<br />
+            Run this in Terminal on your computer:
           </div>
 
-          <div style={{ marginBottom: '10px', fontSize: '12px' }}>
-            <div style={{ color: '#aaa', marginBottom: '4px' }}>
-              <span className="amber">Option A</span> — normal login (email + password):
-            </div>
-            <code style={{ background: '#111', padding: '4px 8px', display: 'inline-block', color: '#0f0' }}>
-              python3 garmin_login.py
+          <div style={{ marginBottom: '14px' }}>
+            <code style={{ background: '#111', padding: '6px 10px', display: 'inline-block', color: '#0f0', fontSize: '13px' }}>
+              python3 browser_auth.py
             </code>
-          </div>
-
-          <div style={{ marginBottom: '14px', fontSize: '12px' }}>
-            <div style={{ color: '#aaa', marginBottom: '4px' }}>
-              <span className="amber">Option B</span> — browser cookie (use if Option A is rate-limited):
+            <div className="dim" style={{ fontSize: '11px', marginTop: '4px' }}>
+              Requires: <code style={{ color: '#888' }}>pip install playwright requests requests-oauthlib && playwright install chromium</code>
             </div>
-            <code style={{ background: '#111', padding: '4px 8px', display: 'inline-block', color: '#0f0' }}>
-              python3 garmin_login.py --browser
-            </code>
           </div>
 
           <div style={{ marginBottom: '6px', fontSize: '11px', color: '#555' }}>
-            TOKEN JSON (output from garmin_login.py)
+            PASTE TOKEN (output from browser_auth.py)
           </div>
           <textarea
             className="term-input"
-            value={garminOauth2}
-            onChange={e => setGarminOauth2(e.target.value)}
-            placeholder={'{"access_token": "eyJ...", "refresh_token": "...", "client_id": "..."}'}
+            value={garminTokens}
+            onChange={e => setGarminTokens(e.target.value)}
+            placeholder='{"oauth1": {...}, "oauth2": {...}}'
             style={{ width: '100%', minHeight: '70px', resize: 'vertical', fontFamily: 'var(--font-mono)', fontSize: '11px' }}
           />
-          <button className="term-btn amber" style={{ marginTop: '6px' }}
-            onClick={() => save('garminOauth2Token', garminOauth2)}
-            disabled={!garminOauth2 || saving === 'garminOauth2Token'}>
-            {saving === 'garminOauth2Token' ? '[...]' : '[SAVE TOKEN]'}
-          </button>
-
-          {settings?.hasGarminOauth2 && (
-            <div style={{ marginTop: '10px' }}>
-              <button className="term-btn" style={{ fontSize: '11px' }} onClick={() => clearField('garminOauth2Token')}>
-                [CLEAR TOKEN]
+          <div style={{ marginTop: '6px', display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <button className="term-btn amber"
+              onClick={() => save('garminTokens', garminTokens)}
+              disabled={!garminTokens || saving === 'garminTokens'}>
+              {saving === 'garminTokens' ? '[...]' : '[SAVE TOKENS]'}
+            </button>
+            {settings?.hasGarminOauth2 && (
+              <button className="term-btn" style={{ fontSize: '11px' }} onClick={() => clearField('garminTokens')}>
+                [CLEAR]
               </button>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       </div>
 
@@ -174,11 +199,9 @@ export default function Settings() {
       <div className="term-box">
         <div className="term-box-title">SECURITY</div>
         <div className="term-box-body" style={{ fontSize: '13px', color: '#666' }}>
-          <div>• Your API key and Garmin tokens are encrypted at rest using AES-256-GCM.</div>
-          <div>• They are stored encrypted in the database, isolated to your account.</div>
-          <div>• No other user can access your data.</div>
-          <div>• Your key is never sent to the browser — only used server-side per request.</div>
-          <div>• Garmin token auto-refreshes server-side. Re-run garmin_login.py every ~90 days.</div>
+          <div>• API key and Garmin tokens encrypted at rest (AES-256-GCM), isolated per account.</div>
+          <div>• Never sent to the browser — only used server-side.</div>
+          <div>• Garmin tokens auto-refresh server-side. Re-run browser_auth.py only when fully expired.</div>
         </div>
       </div>
     </div>

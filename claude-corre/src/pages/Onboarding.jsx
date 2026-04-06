@@ -344,9 +344,9 @@ function Step2Profile({ onDone, onBack }) {
 
 function Step3Garmin({ onDone, onBack }) {
   const { getAuthHeader } = useAuth()
-  const [choice, setChoice] = useState(null) // null | 'yes' | 'skip'
+  const [choice, setChoice] = useState(null)
   const [tokenText, setTokenText] = useState('')
-  const [saveStatus, setSaveStatus] = useState(null) // null | 'saving' | 'ok' | 'error'
+  const [saveStatus, setSaveStatus] = useState(null)
   const [saveError, setSaveError] = useState('')
 
   async function saveTokens() {
@@ -354,24 +354,25 @@ function Step3Garmin({ onDone, onBack }) {
     setSaveStatus('saving')
     setSaveError('')
     try {
-      // Validate it's parseable JSON with an access_token
       let parsed
       try { parsed = JSON.parse(tokenText.trim()) } catch {
         setSaveStatus('error')
-        setSaveError('Invalid JSON. Make sure you copied the entire contents of oauth2_token.json, including the { and } brackets.')
+        setSaveError('Invalid JSON. Copy the entire output from browser_auth.py.')
         return
       }
-      if (!parsed.access_token) {
+      // Accept both combined format {oauth1, oauth2} and legacy {access_token}
+      if (!parsed.oauth1 && !parsed.oauth2 && !parsed.access_token) {
         setSaveStatus('error')
-        setSaveError('The JSON is missing the "access_token" field. Make sure you copied the oauth2_token.json file, not oauth1_token.json.')
+        setSaveError('Token JSON must contain oauth1+oauth2 (from browser_auth.py) or at least an access_token.')
         return
       }
       const res = await fetch('/api/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
-        body: JSON.stringify({ garminOauth2Token: tokenText.trim() }),
+        body: JSON.stringify({ garminTokens: tokenText.trim() }),
       })
-      if (!res.ok) throw new Error('Save failed')
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Save failed')
       setSaveStatus('ok')
     } catch (e) {
       setSaveStatus('error')
@@ -385,28 +386,19 @@ function Step3Garmin({ onDone, onBack }) {
         <div className="term-box-title">STEP 3 — GARMIN WATCH (OPTIONAL)</div>
         <div className="term-box-body" style={{ lineHeight: '1.8' }}>
           <div style={{ color: '#aaa', marginBottom: '16px' }}>
-            If you have a Garmin GPS watch, Claude Corre can push prescribed workouts
-            directly to it — so your watch will guide you with HR targets and distance
-            while you run. This is completely optional.
-          </div>
-          <div style={{ marginBottom: '16px', fontSize: '13px', color: '#555' }}>
-            You can always set this up later in <span className="amber">[SETTINGS]</span>.
+            Connect your Garmin to push workouts to your watch and sync activities automatically.
           </div>
 
           {choice === null && (
             <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-              <button className="term-btn amber" onClick={() => setChoice('yes')}>
-                [YES, I HAVE A GARMIN WATCH]
-              </button>
-              <button className="term-btn" onClick={() => setChoice('skip')}>
-                [SKIP — NO WATCH / DO THIS LATER]
-              </button>
+              <button className="term-btn amber" onClick={() => setChoice('yes')}>[CONNECT GARMIN]</button>
+              <button className="term-btn" onClick={() => setChoice('skip')}>[SKIP FOR NOW]</button>
             </div>
           )}
 
           {choice === 'skip' && (
-            <div style={{ color: '#aaa', fontSize: '13px' }}>
-              No problem. You can connect your Garmin any time from <span className="amber">[SETTINGS]</span>.
+            <div className="dim" style={{ fontSize: '13px' }}>
+              You can connect Garmin any time from <span className="amber">[SETTINGS]</span>.
             </div>
           )}
         </div>
@@ -414,128 +406,65 @@ function Step3Garmin({ onDone, onBack }) {
 
       {choice === 'yes' && (
         <div className="term-box">
-          <div className="term-box-title">HOW TO CONNECT YOUR GARMIN WATCH</div>
-          <div className="term-box-body" style={{ fontSize: '14px', lineHeight: '2' }}>
+          <div className="term-box-title">CONNECT GARMIN</div>
+          <div className="term-box-body" style={{ fontSize: '13px', lineHeight: '1.9' }}>
+            <div style={{ marginBottom: '12px', color: '#888' }}>
+              Run this in your Terminal (takes ~1 minute):
+            </div>
 
-            <div style={{ marginBottom: '8px', color: '#888', fontSize: '13px' }}>
-              This takes about 2 minutes. You need Python 3 and Google Chrome on your computer.
+            <div style={{ marginBottom: '8px' }}>
+              <span className="amber">1.</span> Install dependencies (first time only):
+              <div style={{ background: '#0d0d0d', border: '1px solid #2a2a2a', padding: '6px 10px', margin: '4px 0', fontFamily: 'var(--font-mono)', fontSize: '12px', color: '#aaa' }}>
+                pip install playwright requests requests-oauthlib && playwright install chromium
+              </div>
+            </div>
+
+            <div style={{ marginBottom: '8px' }}>
+              <span className="amber">2.</span> Run the auth script:
+              <div style={{ background: '#0d0d0d', border: '1px solid #2a2a2a', padding: '6px 10px', margin: '4px 0', fontFamily: 'var(--font-mono)', fontSize: '12px', color: '#aaa' }}>
+                python3 browser_auth.py
+              </div>
+            </div>
+
+            <div style={{ marginBottom: '8px' }}>
+              <span className="amber">3.</span> A browser opens — log in with your Garmin credentials. It closes automatically.
             </div>
 
             <div style={{ marginBottom: '12px' }}>
-              <span className="amber">WHAT YOU NEED:</span>
-              <div style={{ paddingLeft: '16px', fontSize: '13px', color: '#888', lineHeight: '1.9' }}>
-                <div>✓ Python 3 → check by opening Terminal and typing: <code style={{ color: '#ccc', background: '#111', padding: '1px 6px' }}>python3 --version</code></div>
-                <div>✓ Google Chrome installed</div>
-                <div>✓ Your Garmin Connect username and password</div>
-                <div>✓ The <code style={{ color: '#ccc', background: '#111', padding: '1px 6px' }}>browser_auth.py</code> script (ask the app admin if you don&apos;t have it)</div>
-              </div>
+              <span className="amber">4.</span> The script copies a token to your clipboard. Paste it below:
             </div>
 
-            <div style={{ borderTop: '1px solid #1a1a1a', paddingTop: '16px' }}>
-              <div style={{ marginBottom: '12px' }}>
-                <span className="amber">STEP 1 →</span> Open Terminal on your computer.
-                <div style={{ paddingLeft: '16px', fontSize: '13px', color: '#888' }}>
-                  Mac: Press <strong style={{ color: '#ccc' }}>⌘ + Space</strong>, type <strong style={{ color: '#ccc' }}>Terminal</strong>, press Enter.
-                  <br />Windows: Press <strong style={{ color: '#ccc' }}>Win + R</strong>, type <strong style={{ color: '#ccc' }}>cmd</strong>, press Enter.
-                </div>
-              </div>
-
-              <div style={{ marginBottom: '12px' }}>
-                <span className="amber">STEP 2 →</span> Navigate to the folder with the script and run it.
-                <div style={{ paddingLeft: '16px', fontSize: '13px', color: '#888', marginTop: '4px' }}>
-                  Copy and paste this command (adjust the path to wherever you saved the script):
-                </div>
-                <div style={{
-                  background: '#0d0d0d', border: '1px solid #2a2a2a', padding: '8px 12px',
-                  margin: '6px 0', fontFamily: 'var(--font-mono)', fontSize: '13px', color: '#aaa',
-                }}>
-                  python3 browser_auth.py
-                </div>
-              </div>
-
-              <div style={{ marginBottom: '12px' }}>
-                <span className="amber">STEP 3 →</span> A browser window will open automatically.
-                <div style={{ paddingLeft: '16px', fontSize: '13px', color: '#888' }}>
-                  Log in to your Garmin Connect account. Do not close the window.
-                  The script will say <strong style={{ color: '#ccc' }}>&quot;tokens saved&quot;</strong> when it&apos;s done.
-                </div>
-              </div>
-
-              <div style={{ marginBottom: '16px' }}>
-                <span className="amber">STEP 4 →</span> Copy your token file.
-                <div style={{ paddingLeft: '16px', fontSize: '13px', color: '#888', marginTop: '4px' }}>
-                  In the same Terminal window, run:
-                </div>
-                <div style={{
-                  background: '#0d0d0d', border: '1px solid #2a2a2a', padding: '8px 12px',
-                  margin: '6px 0', fontFamily: 'var(--font-mono)', fontSize: '13px', color: '#aaa',
-                }}>
-                  cat ~/.garmin_tokens/oauth2_token.json
-                </div>
-                <div style={{ paddingLeft: '16px', fontSize: '13px', color: '#888' }}>
-                  You&apos;ll see a block of text starting with <code style={{ color: '#ccc', background: '#111', padding: '1px 4px' }}>{`{`}</code> and ending with <code style={{ color: '#ccc', background: '#111', padding: '1px 4px' }}>{`}`}</code>.
-                  Select all of it and copy it.
-                </div>
-              </div>
-
-              <div style={{ marginBottom: '12px' }}>
-                <span className="amber">STEP 5 →</span> Paste it in the box below.
-                <div style={{ paddingLeft: '16px', fontSize: '13px', color: '#888', marginBottom: '8px' }}>
-                  It should look like:<br />
-                  <code style={{ color: '#555', fontSize: '12px' }}>
-                    {`{"access_token": "eyJ...", "token_type": "Bearer", ...}`}
-                  </code>
-                </div>
-                <textarea
-                  className="term-input"
-                  value={tokenText}
-                  onChange={e => { setTokenText(e.target.value); setSaveStatus(null) }}
-                  placeholder={'{"access_token": "eyJ...", "token_type": "Bearer", ...}'}
-                  style={{ width: '100%', minHeight: '90px', resize: 'vertical', fontFamily: 'var(--font-mono)', fontSize: '12px' }}
-                  disabled={saveStatus === 'ok'}
-                />
-                <div style={{ display: 'flex', gap: '8px', marginTop: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-                  <button
-                    className="term-btn amber"
-                    onClick={saveTokens}
-                    disabled={!tokenText.trim() || saveStatus === 'saving' || saveStatus === 'ok'}
-                  >
-                    {saveStatus === 'saving' ? '[...]' : '[SAVE GARMIN TOKENS]'}
-                  </button>
-                  <button className="term-btn" style={{ fontSize: '12px' }} onClick={() => setChoice('skip')}>
-                    [SKIP FOR NOW]
-                  </button>
-                </div>
-                {saveStatus === 'error' && (
-                  <div className="red" style={{ fontSize: '13px', marginTop: '8px' }}>✗ {saveError}</div>
-                )}
-                {saveStatus === 'ok' && (
-                  <div className="status-ok" style={{ fontSize: '13px', marginTop: '8px' }}>
-                    ✓ Garmin connected. Tokens expire in ~30 days — re-run browser_auth.py when needed.
-                  </div>
-                )}
-              </div>
+            <textarea
+              className="term-input"
+              value={tokenText}
+              onChange={e => { setTokenText(e.target.value); setSaveStatus(null) }}
+              placeholder='{"oauth1": {...}, "oauth2": {...}}'
+              style={{ width: '100%', minHeight: '80px', resize: 'vertical', fontFamily: 'var(--font-mono)', fontSize: '11px' }}
+              disabled={saveStatus === 'ok'}
+            />
+            <div style={{ display: 'flex', gap: '8px', marginTop: '8px', alignItems: 'center' }}>
+              <button className="term-btn amber" onClick={saveTokens}
+                disabled={!tokenText.trim() || saveStatus === 'saving' || saveStatus === 'ok'}>
+                {saveStatus === 'saving' ? '[...]' : '[SAVE TOKENS]'}
+              </button>
+              <button className="term-btn" style={{ fontSize: '12px' }} onClick={() => setChoice('skip')}>[SKIP]</button>
             </div>
+            {saveStatus === 'error' && <div className="red" style={{ fontSize: '13px', marginTop: '8px' }}>{saveError}</div>}
+            {saveStatus === 'ok' && (
+              <div className="status-ok" style={{ fontSize: '13px', marginTop: '8px' }}>
+                Garmin connected. Tokens auto-refresh server-side.
+              </div>
+            )}
           </div>
         </div>
       )}
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '8px' }}>
-        <button className="term-btn" onClick={onBack}>[← BACK]</button>
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
-          {choice === 'yes' && saveStatus !== 'ok' && (
-            <div className="dim" style={{ fontSize: '12px' }}>
-              Save your tokens above, or click [SKIP FOR NOW] to continue without Garmin.
-            </div>
-          )}
-          <button
-            className="term-btn amber"
-            onClick={onDone}
-            disabled={choice === null || (choice === 'yes' && saveStatus !== 'ok')}
-          >
-            [GO TO DASHBOARD →]
-          </button>
-        </div>
+        <button className="term-btn" onClick={onBack}>[BACK]</button>
+        <button className="term-btn amber" onClick={onDone}
+          disabled={choice === null || (choice === 'yes' && saveStatus !== 'ok')}>
+          [GO TO DASHBOARD]
+        </button>
       </div>
     </div>
   )

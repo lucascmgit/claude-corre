@@ -2,7 +2,7 @@ import express from 'express'
 import bcrypt from 'bcrypt'
 import jwt from 'jsonwebtoken'
 import cors from 'cors'
-import { randomUUID } from 'crypto'
+import { randomUUID, createHmac, randomBytes } from 'crypto'
 import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
 import Anthropic from '@anthropic-ai/sdk'
@@ -167,12 +167,16 @@ function buildDashboard(db, userId) {
   }
 }
 
-app.get('/api/dashboard', requireAuth, (req, res) => {
+app.get('/api/dashboard', requireAuth, async (req, res) => {
   const db = getDb()
   const parsed = buildDashboard(db, req.user.sub)
   const s = getSettings(req.user.sub)
   parsed.hasGarminTokens = !!s.garmin_oauth2_token
   parsed.garminTokenDaysOld = s.garmin_oauth2_saved_at ? Math.floor((Date.now() - s.garmin_oauth2_saved_at) / 86_400_000) : null
+  // Proactively refresh Garmin token on dashboard load (non-blocking)
+  if (s.garmin_oauth2_token) {
+    ensureFreshGarminToken(req.user.sub).catch(() => {})
+  }
   res.json(parsed)
 })
 
@@ -444,75 +448,173 @@ function getUserApiKey(userId) {
   try { return decrypt(s.anthropic_api_key) } catch { return null }
 }
 
-function getUserGarminTokens(userId) {
+// ── Garmin auth (OAuth1 → OAuth2 exchange via browser_auth.py) ────────────────
+
+const GARMIN_OAUTH_CONSUMER_URL = 'https://thegarth.s3.amazonaws.com/oauth_consumer.json'
+const GARMIN_UA = 'com.garmin.android.apps.connectmobile'
+let _oauthConsumerCache = null
+
+async function getOAuthConsumer() {
+  if (_oauthConsumerCache) return _oauthConsumerCache
+  const r = await fetch(GARMIN_OAUTH_CONSUMER_URL, { headers: { 'Accept': 'application/json' } })
+  if (!r.ok) return null
+  _oauthConsumerCache = await r.json()
+  return _oauthConsumerCache
+}
+
+function garminFetchHeaders(accessToken) {
+  return {
+    'Authorization': `Bearer ${accessToken}`,
+    'User-Agent': 'GCM-iOS-5.7.2.1',
+    'Accept': 'application/json',
+  }
+}
+
+function getGarminTokens(userId) {
   const s = getSettings(userId)
-  const result = {}
+  const result = { oauth1: null, oauth2: null }
   if (s.garmin_oauth1_token) try { result.oauth1 = JSON.parse(decrypt(s.garmin_oauth1_token)) } catch {}
   if (s.garmin_oauth2_token) try { result.oauth2 = JSON.parse(decrypt(s.garmin_oauth2_token)) } catch {}
   return result
 }
 
-// Returns fetch headers for connectapi.garmin.com based on token type.
-// DI tokens (from garmin_login.py normal mode) use Bearer auth.
-// JWT_WEB tokens (from --browser mode, no refresh_token) use Cookie auth.
-function garminFetchHeaders(tokenStr, isDiToken) {
-  if (isDiToken) {
-    return { 'Authorization': `Bearer ${tokenStr}`, 'User-Agent': 'GCM-Android-5.23', 'Accept': 'application/json' }
+// Refresh OAuth2 token using OAuth1 credentials via the exchange endpoint.
+// This is the same flow browser_auth.py uses, no Cloudflare issues.
+async function refreshGarminToken(userId) {
+  const { oauth1, oauth2 } = getGarminTokens(userId)
+  if (!oauth1?.oauth_token || !oauth1?.oauth_token_secret) return null
+
+  const consumer = await getOAuthConsumer()
+  if (!consumer) return null
+
+  const exchangeUrl = 'https://connectapi.garmin.com/oauth-service/oauth/exchange/user/2.0'
+  // createHmac, randomBytes imported at top level
+  const timestamp = Math.floor(Date.now() / 1000).toString()
+  const nonce = randomBytes(16).toString('hex')
+
+  const oauthParams = {
+    oauth_consumer_key: consumer.consumer_key,
+    oauth_nonce: nonce,
+    oauth_signature_method: 'HMAC-SHA1',
+    oauth_timestamp: timestamp,
+    oauth_token: oauth1.oauth_token,
+    oauth_version: '1.0',
   }
-  return { 'Cookie': `JWT_WEB=${tokenStr}`, 'NK': 'NT', 'DI-Backend': 'connectapi.garmin.com', 'Origin': 'https://connect.garmin.com', 'Referer': 'https://connect.garmin.com/modern/', 'Accept': 'application/json' }
-}
 
-// Auto-refreshes the DI access_token via diauth.garmin.com (NOT Cloudflare-blocked).
-// Token format: {access_token, refresh_token, client_id}
-// Returns the new access_token string, or null if refresh fails.
-async function refreshDiToken(userId) {
-  const s = getSettings(userId)
-  if (!s.garmin_oauth2_token) return null
-  let tok
-  try { tok = JSON.parse(decrypt(s.garmin_oauth2_token)) } catch { return null }
-  if (!tok?.refresh_token || !tok?.client_id) return null
+  // Build signature base string (POST, no body params for signature)
+  const sorted = Object.keys(oauthParams).sort().map(k => `${encodeURIComponent(k)}=${encodeURIComponent(oauthParams[k])}`).join('&')
+  const baseString = `POST&${encodeURIComponent(exchangeUrl)}&${encodeURIComponent(sorted)}`
+  const signingKey = `${encodeURIComponent(consumer.consumer_secret)}&${encodeURIComponent(oauth1.oauth_token_secret)}`
+  const signature = createHmac('sha1', signingKey).update(baseString).digest('base64')
 
-  const basicAuth = 'Basic ' + Buffer.from(`${tok.client_id}:`).toString('base64')
+  oauthParams.oauth_signature = signature
+  const authHeader = 'OAuth ' + Object.keys(oauthParams).sort().map(k => `${encodeURIComponent(k)}="${encodeURIComponent(oauthParams[k])}"`).join(', ')
+
   try {
-    const r = await fetch('https://diauth.garmin.com/di-oauth2-service/oauth/token', {
+    const body = oauth1.mfa_token ? `mfa_token=${encodeURIComponent(oauth1.mfa_token)}` : ''
+    const r = await fetch(exchangeUrl, {
       method: 'POST',
       headers: {
-        'Authorization': basicAuth,
+        'Authorization': authHeader,
+        'User-Agent': GARMIN_UA,
         'Content-Type': 'application/x-www-form-urlencoded',
-        'Accept': 'application/json',
-        'User-Agent': 'GCM-Android-5.23',
-        'X-Garmin-Client-Platform': 'Android',
       },
-      body: new URLSearchParams({
-        grant_type: 'refresh_token',
-        client_id: tok.client_id,
-        refresh_token: tok.refresh_token,
-      }),
+      body,
     })
-    if (!r.ok) return null
-    const data = await r.json()
-    if (!data.access_token) return null
-    // Save refreshed token back to DB
-    const updated = { ...tok, access_token: data.access_token, refresh_token: data.refresh_token || tok.refresh_token }
+    if (!r.ok) {
+      console.error(`Garmin token refresh failed: HTTP ${r.status}`)
+      return null
+    }
+    const fresh = await r.json()
+    if (!fresh.access_token) return null
+
+    fresh.expires_at = Math.floor(Date.now() / 1000) + (fresh.expires_in || 3600)
+    fresh.refresh_token_expires_at = Math.floor(Date.now() / 1000) + (fresh.refresh_token_expires_in || 7776000)
+
+    // Save refreshed OAuth2 token
     getDb().prepare('UPDATE user_settings SET garmin_oauth2_token = ?, garmin_oauth2_saved_at = ?, updated_at = ? WHERE user_id = ?')
-      .run(encrypt(JSON.stringify(updated)), Date.now(), Date.now(), userId)
-    return data.access_token
-  } catch {
+      .run(encrypt(JSON.stringify(fresh)), Date.now(), Date.now(), userId)
+
+    console.log(`Garmin token refreshed for user ${userId}`)
+    return fresh.access_token
+  } catch (e) {
+    console.error(`Garmin token refresh error: ${e.message}`)
     return null
   }
 }
 
+// Check if OAuth2 token is expired or near expiry
+function isTokenExpired(oauth2) {
+  if (!oauth2?.access_token) return true
+  if (!oauth2.expires_at) return false // no expiry info, assume valid
+  return Math.floor(Date.now() / 1000) >= (oauth2.expires_at - 300) // 5 min buffer
+}
+
+// Proactive refresh: call on first Garmin request per session
+async function ensureFreshGarminToken(userId) {
+  const { oauth2 } = getGarminTokens(userId)
+  if (!oauth2?.access_token) return null
+  if (!isTokenExpired(oauth2)) return oauth2.access_token
+  return await refreshGarminToken(userId)
+}
+
+// Helper: make a Garmin API call with auto-retry on 401
+async function garminApiFetch(userId, url, options = {}) {
+  const { oauth2 } = getGarminTokens(userId)
+  if (!oauth2?.access_token) throw new Error('No Garmin token. Run browser_auth.py and paste tokens in Settings.')
+
+  let token = isTokenExpired(oauth2) ? await refreshGarminToken(userId) : oauth2.access_token
+  if (!token) throw new Error('Garmin token expired and refresh failed. Re-run browser_auth.py.')
+
+  let r = await fetch(url, { ...options, headers: { ...garminFetchHeaders(token), ...options.headers } })
+
+  if (r.status === 401) {
+    token = await refreshGarminToken(userId)
+    if (!token) throw new Error('Garmin token expired. Re-run browser_auth.py and paste tokens in Settings.')
+    r = await fetch(url, { ...options, headers: { ...garminFetchHeaders(token), ...options.headers } })
+  }
+
+  return r
+}
+
 
 app.post('/api/settings', requireAuth, (req, res) => {
-  const { anthropicApiKey, garminOauth1Token, garminOauth2Token } = req.body
+  const { anthropicApiKey, garminTokens } = req.body
   const s = getSettings(req.user.sub)
   const now = Date.now()
 
   const ak = anthropicApiKey !== undefined ? (anthropicApiKey ? encrypt(anthropicApiKey) : null) : s.anthropic_api_key
-  const o1 = garminOauth1Token !== undefined ? (garminOauth1Token ? encrypt(garminOauth1Token) : null) : s.garmin_oauth1_token
-  const o2 = garminOauth2Token !== undefined ? (garminOauth2Token ? encrypt(garminOauth2Token) : null) : s.garmin_oauth2_token
-  // Track when OAuth2 token was last saved (for expiry warnings — tokens last ~30 days)
-  const o2SavedAt = garminOauth2Token !== undefined && garminOauth2Token ? now : (s.garmin_oauth2_saved_at || null)
+  let o1 = s.garmin_oauth1_token
+  let o2 = s.garmin_oauth2_token
+  let o2SavedAt = s.garmin_oauth2_saved_at || null
+
+  // Accept combined token blob from browser_auth.py: { oauth1: {...}, oauth2: {...} }
+  if (garminTokens !== undefined) {
+    if (garminTokens) {
+      try {
+        const parsed = typeof garminTokens === 'string' ? JSON.parse(garminTokens) : garminTokens
+        if (parsed.oauth1 && parsed.oauth2) {
+          // Combined format from browser_auth.py
+          o1 = encrypt(JSON.stringify(parsed.oauth1))
+          o2 = encrypt(JSON.stringify(parsed.oauth2))
+        } else if (parsed.access_token) {
+          // Legacy format: just oauth2
+          o2 = encrypt(JSON.stringify(parsed))
+          // Try to preserve existing oauth1 if present
+        } else {
+          return res.status(400).json({ error: 'Invalid token format. Run browser_auth.py and paste the output.' })
+        }
+        o2SavedAt = now
+      } catch (e) {
+        return res.status(400).json({ error: `Could not parse token: ${e.message}` })
+      }
+    } else {
+      // Clear tokens
+      o1 = null
+      o2 = null
+      o2SavedAt = null
+    }
+  }
 
   getDb().prepare('INSERT OR REPLACE INTO user_settings (user_id, anthropic_api_key, garmin_oauth1_token, garmin_oauth2_token, garmin_oauth2_saved_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)').run(req.user.sub, ak, o1, o2, o2SavedAt, now)
   res.json({ ok: true })
@@ -530,30 +632,52 @@ app.get('/api/settings', requireAuth, (req, res) => {
   })
 })
 
-// ── Garmin token diagnostics ──────────────────────────────────────────────────
+// ── Garmin token status ──────────────────────────────────────────────────────
 
-app.get('/api/garmin-debug', requireAuth, (req, res) => {
+app.get('/api/garmin-status', requireAuth, async (req, res) => {
+  const { oauth1, oauth2 } = getGarminTokens(req.user.sub)
   const s = getSettings(req.user.sub)
-  const info = { hasOauth1: !!s.garmin_oauth1_token, hasOauth2: !!s.garmin_oauth2_token, oauth1Fields: null, oauth2Fields: null }
-  if (s.garmin_oauth1_token) {
-    try { info.oauth1Fields = Object.keys(JSON.parse(decrypt(s.garmin_oauth1_token))) } catch (e) { info.oauth1Fields = `decrypt error: ${e.message}` }
+  const now = Math.floor(Date.now() / 1000)
+
+  const status = {
+    hasOauth1: !!oauth1?.oauth_token,
+    hasOauth2: !!oauth2?.access_token,
+    canRefresh: !!(oauth1?.oauth_token && oauth1?.oauth_token_secret),
+    oauth2Expired: oauth2 ? isTokenExpired(oauth2) : null,
+    oauth2ExpiresAt: oauth2?.expires_at ? new Date(oauth2.expires_at * 1000).toISOString() : null,
+    refreshTokenExpiresAt: oauth2?.refresh_token_expires_at ? new Date(oauth2.refresh_token_expires_at * 1000).toISOString() : null,
+    refreshTokenExpired: oauth2?.refresh_token_expires_at ? now >= oauth2.refresh_token_expires_at : null,
+    savedDaysAgo: s.garmin_oauth2_saved_at ? Math.floor((Date.now() - s.garmin_oauth2_saved_at) / 86_400_000) : null,
   }
-  if (s.garmin_oauth2_token) {
-    try { info.oauth2Fields = Object.keys(JSON.parse(decrypt(s.garmin_oauth2_token))) } catch (e) { info.oauth2Fields = `decrypt error: ${e.message}` }
+
+  // Determine overall health
+  if (!status.hasOauth1 && !status.hasOauth2) {
+    status.health = 'not_connected'
+    status.message = 'No Garmin tokens. Run browser_auth.py to connect.'
+  } else if (!status.hasOauth1) {
+    status.health = 'degraded'
+    status.message = 'Missing OAuth1 token — cannot auto-refresh. Re-run browser_auth.py.'
+  } else if (status.refreshTokenExpired) {
+    status.health = 'expired'
+    status.message = 'Refresh token expired. Re-run browser_auth.py.'
+  } else if (status.oauth2Expired) {
+    status.health = 'refreshing'
+    status.message = 'Access token expired — will auto-refresh on next Garmin request.'
+  } else {
+    status.health = 'healthy'
+    status.message = 'Garmin connected. Tokens valid and auto-refreshable.'
   }
-  res.json(info)
+
+  res.json(status)
 })
 
-// Returns the user's decrypted OAuth2 token so the browser can call Garmin's
-// refresh endpoint directly (browser = residential IP, bypasses Cloudflare block).
-app.get('/api/garmin-raw-token', requireAuth, (req, res) => {
-  const s = getSettings(req.user.sub)
-  if (!s.garmin_oauth2_token) return res.status(404).json({ error: 'No Garmin token saved.' })
-  try {
-    const token = JSON.parse(decrypt(s.garmin_oauth2_token))
-    res.json(token)
-  } catch (e) {
-    res.status(500).json({ error: `Token decrypt failed: ${e.message}` })
+// Force a token refresh (for manual troubleshooting)
+app.post('/api/garmin-refresh', requireAuth, async (req, res) => {
+  const fresh = await refreshGarminToken(req.user.sub)
+  if (fresh) {
+    res.json({ ok: true, message: 'Token refreshed successfully.' })
+  } else {
+    res.status(500).json({ error: 'Refresh failed. Re-run browser_auth.py.' })
   }
 })
 
@@ -873,16 +997,6 @@ app.post('/api/push-workout', requireAuth, async (req, res) => {
   const apiKey = getUserApiKey(req.user.sub)
   if (!apiKey) return res.status(503).json({ error: 'No Anthropic API key configured. Go to [SETTINGS].' })
 
-  const s = getSettings(req.user.sub)
-  if (!s.garmin_oauth2_token) return res.status(503).json({ error: 'Garmin tokens not configured. Go to [SETTINGS].' })
-  let garminOauth2
-  try {
-    garminOauth2 = JSON.parse(decrypt(s.garmin_oauth2_token))
-  } catch (e) {
-    return res.status(503).json({ error: `Token decrypt failed: ${e.message}. Re-save your Garmin tokens in [SETTINGS].` })
-  }
-  if (!garminOauth2?.access_token) return res.status(503).json({ error: `Token missing access_token field. Re-paste the full oauth2_token.json content in [SETTINGS]. Keys found: ${Object.keys(garminOauth2 || {}).join(', ')}` })
-
   const { prescription, prescription_id } = req.body
   if (!prescription && !prescription_id) return res.status(400).json({ error: 'No prescription provided.' })
 
@@ -921,55 +1035,35 @@ app.post('/api/push-workout', requireAuth, async (req, res) => {
   }
 
   try {
-
     const workout = buildGarminWorkout(workoutParams)
-    const isDi = !!garminOauth2.refresh_token
-
-    const pushToGarmin = (token) => fetch('https://connectapi.garmin.com/workout-service/workout', {
+    const garminRes = await garminApiFetch(req.user.sub, 'https://connectapi.garmin.com/workout-service/workout', {
       method: 'POST',
-      headers: { ...garminFetchHeaders(token, isDi), 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(workout),
     })
 
-    let garminRes = await pushToGarmin(garminOauth2.access_token)
-
-    if (!garminRes.ok && garminRes.status === 401) {
-      const fresh = await refreshDiToken(req.user.sub)
-      if (fresh) garminRes = await pushToGarmin(fresh)
-    }
-
     if (!garminRes.ok) {
       const body = await garminRes.text()
-      if (garminRes.status === 401) return res.status(401).json({ error: 'Garmin token expired. Run  python3 garmin_login.py  and paste the token in Settings.' })
+      if (garminRes.status === 401) return res.status(401).json({ error: 'Garmin token expired. Re-run browser_auth.py and paste tokens in Settings.' })
       return res.status(502).json({ error: `Garmin API error ${garminRes.status}: ${body}` })
     }
     const result = await garminRes.json()
     res.json({ workoutId: result.workoutId || result.workout_id, workoutName: workout.workoutName })
   } catch (e) {
-    res.status(500).json({ error: `Push failed: ${e.message}` })
+    res.status(500).json({ error: e.message })
   }
 })
 
 // ── Garmin activity sync ───────────────────────────────────────────────────────
 
 app.get('/api/garmin-activities', requireAuth, async (req, res) => {
-  const s = getSettings(req.user.sub)
-  if (!s.garmin_oauth2_token) return res.status(503).json({ error: 'Garmin tokens not configured.' })
-  let garminOauth2
-  try { garminOauth2 = JSON.parse(decrypt(s.garmin_oauth2_token)) } catch (e) {
-    return res.status(503).json({ error: `Token decrypt failed: ${e.message}` })
-  }
-
   try {
     const actUrl = 'https://connectapi.garmin.com/activitylist-service/activities/search/activities?start=0&limit=10&activityType=running'
-    const isDi = !!garminOauth2.refresh_token
-    const garminFetch = (token) => fetch(actUrl, { headers: garminFetchHeaders(token, isDi) })
-    let r = await garminFetch(garminOauth2.access_token)
-    if (!r.ok && r.status === 401) {
-      const fresh = await refreshDiToken(req.user.sub)
-      if (fresh) r = await garminFetch(fresh)
+    const r = await garminApiFetch(req.user.sub, actUrl)
+    if (!r.ok) {
+      const body = await r.text()
+      return res.status(r.status === 401 ? 401 : 502).json({ error: r.status === 401 ? 'Garmin token expired. Re-run browser_auth.py.' : `Garmin API error ${r.status}: ${body}` })
     }
-    if (!r.ok) return res.status(r.status === 401 ? 401 : 502).json({ error: r.status === 401 ? 'Garmin token expired. Run  python3 garmin_login.py  and paste the token in Settings.' : `Garmin API error ${r.status}: ${await r.text()}` })
     const list = await r.json()
     const activities = (Array.isArray(list) ? list : list.activityList || []).map(a => ({
       activityId: a.activityId,
@@ -981,20 +1075,13 @@ app.get('/api/garmin-activities', requireAuth, async (req, res) => {
     }))
     res.json({ activities })
   } catch (e) {
-    res.status(500).json({ error: `Sync failed: ${e.message}` })
+    res.status(500).json({ error: e.message })
   }
 })
 
 app.post('/api/import-garmin', requireAuth, async (req, res) => {
   const apiKey = getUserApiKey(req.user.sub)
   if (!apiKey) return res.status(503).json({ error: 'No Anthropic API key configured.' })
-
-  const s = getSettings(req.user.sub)
-  if (!s.garmin_oauth2_token) return res.status(503).json({ error: 'Garmin tokens not configured.' })
-  let garminOauth2
-  try { garminOauth2 = JSON.parse(decrypt(s.garmin_oauth2_token)) } catch (e) {
-    return res.status(503).json({ error: `Token decrypt failed: ${e.message}` })
-  }
 
   const { activityId, activityName } = req.body
   if (!activityId) return res.status(400).json({ error: 'activityId required' })
@@ -1006,16 +1093,8 @@ app.post('/api/import-garmin', requireAuth, async (req, res) => {
   function send(obj) { res.write(`data: ${JSON.stringify(obj)}\n\n`) }
 
   try {
-    // Download CSV from Garmin (auto-refresh DI token on 401)
-    const isDiCsv = !!garminOauth2.refresh_token
-    const csvFetch = (token) => fetch(`https://connectapi.garmin.com/download-service/export/csv/activity/${activityId}`, {
-      headers: garminFetchHeaders(token, isDiCsv),
-    })
-    let csvRes = await csvFetch(garminOauth2.access_token)
-    if (!csvRes.ok && csvRes.status === 401) {
-      const fresh = await refreshDiToken(req.user.sub)
-      if (fresh) csvRes = await csvFetch(fresh)
-    }
+    // Download CSV from Garmin (auto-refresh on 401)
+    const csvRes = await garminApiFetch(req.user.sub, `https://connectapi.garmin.com/download-service/export/csv/activity/${activityId}`)
     if (!csvRes.ok) {
       send({ error: `Could not download activity CSV from Garmin (${csvRes.status}). Try downloading manually and using [UPLOAD RUN] instead.` })
       return res.end()
