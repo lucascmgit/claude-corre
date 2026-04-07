@@ -462,11 +462,11 @@ async function getOAuthConsumer() {
   return _oauthConsumerCache
 }
 
-function garminFetchHeaders(accessToken) {
+function garminFetchHeaders(accessToken, accept = 'application/json') {
   return {
     'Authorization': `Bearer ${accessToken}`,
     'User-Agent': 'GCM-iOS-5.7.2.1',
-    'Accept': 'application/json',
+    'Accept': accept,
   }
 }
 
@@ -563,15 +563,18 @@ async function garminApiFetch(userId, url, options = {}) {
   const { oauth2 } = getGarminTokens(userId)
   if (!oauth2?.access_token) throw new Error('No Garmin token. Run: cd ~/projects/personal/run/claude-corre && python3 browser_auth.py — then paste tokens in Settings.')
 
+  const accept = options.accept || 'application/json'
+  delete options.accept
+
   let token = isTokenExpired(oauth2) ? await refreshGarminToken(userId) : oauth2.access_token
   if (!token) throw new Error('Garmin token expired and refresh failed. Run: cd ~/projects/personal/run/claude-corre && python3 browser_auth.py.')
 
-  let r = await fetch(url, { ...options, headers: { ...garminFetchHeaders(token), ...options.headers } })
+  let r = await fetch(url, { ...options, headers: { ...garminFetchHeaders(token, accept), ...options.headers } })
 
   if (r.status === 401) {
     token = await refreshGarminToken(userId)
     if (!token) throw new Error('Garmin token expired. Run: cd ~/projects/personal/run/claude-corre && python3 browser_auth.py and paste tokens in Settings.')
-    r = await fetch(url, { ...options, headers: { ...garminFetchHeaders(token), ...options.headers } })
+    r = await fetch(url, { ...options, headers: { ...garminFetchHeaders(token, accept), ...options.headers } })
   }
 
   return r
@@ -1098,7 +1101,7 @@ app.post('/api/import-garmin', requireAuth, async (req, res) => {
 
   try {
     // Download CSV from Garmin (auto-refresh on 401)
-    const csvRes = await garminApiFetch(req.user.sub, `https://connectapi.garmin.com/download-service/export/csv/activity/${activityId}`)
+    const csvRes = await garminApiFetch(req.user.sub, `https://connectapi.garmin.com/download-service/export/csv/activity/${activityId}`, { accept: '*/*' })
     if (!csvRes.ok) {
       send({ error: `Could not download activity CSV from Garmin (${csvRes.status}). Try downloading manually and using [UPLOAD RUN] instead.` })
       return res.end()
