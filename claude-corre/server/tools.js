@@ -313,12 +313,18 @@ function handleGetTrainingLoad(db, userId) {
 
 function handleRecordActivity(db, userId, input) {
   const id = randomUUID()
+  // Validate prescribed_session_id if provided — Claude may hallucinate IDs
+  let prescId = input.prescribed_session_id || null
+  if (prescId) {
+    const exists = db.prepare('SELECT id FROM prescribed_sessions WHERE id = ? AND user_id = ?').get(prescId, userId)
+    if (!exists) prescId = null
+  }
   db.prepare(`INSERT INTO activities
     (id, user_id, prescribed_session_id, activity_date, activity_type, source, distance_m, duration_s,
      avg_hr, max_hr, avg_pace, avg_cadence, splits_json, notes, created_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
     id, userId,
-    input.prescribed_session_id || null,
+    prescId,
     input.activity_date,
     input.activity_type,
     input.source || 'coach',
@@ -340,13 +346,30 @@ function handleRecordActivity(db, userId, input) {
 }
 
 function handleWriteWorkoutEvaluation(db, userId, input) {
+  // Resolve activity_id: use provided ID, or fall back to most recent activity for this user
+  let activityId = input.activity_id
+  if (activityId) {
+    const exists = db.prepare('SELECT id FROM activities WHERE id = ? AND user_id = ?').get(activityId, userId)
+    if (!exists) {
+      // Claude may have hallucinated the ID — use most recent activity instead
+      const latest = db.prepare('SELECT id FROM activities WHERE user_id = ? ORDER BY created_at DESC LIMIT 1').get(userId)
+      activityId = latest?.id || null
+    }
+  } else {
+    // No activity_id provided — use most recent
+    const latest = db.prepare('SELECT id FROM activities WHERE user_id = ? ORDER BY created_at DESC LIMIT 1').get(userId)
+    activityId = latest?.id || null
+  }
+
+  if (!activityId) return { error: 'No activity found to evaluate.' }
+
   const id = randomUUID()
   db.prepare(`INSERT INTO workout_evaluations
     (id, activity_id, user_id, standalone_analysis, prescription_comparison, adherence_score,
      performance_rating, medium_term_trends, goal_progress, coach_notes, plan_adjustments, created_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
     id, userId,
-    input.activity_id,
+    activityId,
     input.standalone_analysis,
     input.prescription_comparison || null,
     input.adherence_score || null,
@@ -357,7 +380,7 @@ function handleWriteWorkoutEvaluation(db, userId, input) {
     input.plan_adjustments || null,
     Date.now()
   )
-  return { evaluation_id: id, message: 'Workout evaluation saved.' }
+  return { evaluation_id: id, activity_id: activityId, message: 'Workout evaluation saved.' }
 }
 
 function handlePrescribeSession(db, userId, input) {
