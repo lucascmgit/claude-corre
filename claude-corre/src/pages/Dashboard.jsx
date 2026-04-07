@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useAuth } from '../context/AuthContext.jsx'
+import { GarminAuthCmd, RenderWithCopyCmd } from '../components/CopyCmd.jsx'
 
 const SPARK_CHARS = '▁▂▃▄▅▆▇█'
 function sparkline(values) {
@@ -387,12 +388,12 @@ export default function Dashboard() {
       {/* Garmin token expiry warning */}
       {hasGarminTokens && garminTokenDaysOld >= 25 && (
         <div style={{ background: '#1a0f00', border: '1px solid var(--amber)', padding: '8px 12px', marginBottom: '12px', fontSize: '13px' }}>
-          <span className="amber">⚠ GARMIN TOKENS EXPIRING SOON</span>
-          <span style={{ color: '#aaa', marginLeft: '8px' }}>
-            Saved {garminTokenDaysOld} days ago — tokens last ~30 days.
-            Re-run <code style={{ color: '#ccc' }}>python3 browser_auth.py</code> and update in{' '}
-            <span className="amber">[SETTINGS]</span>.
-          </span>
+          <span className="amber">GARMIN TOKENS EXPIRING SOON</span>
+          <div style={{ color: '#aaa', marginTop: '4px' }}>
+            Saved {garminTokenDaysOld} days ago. Run in Terminal:
+          </div>
+          <GarminAuthCmd style={{ marginTop: '6px' }} />
+          <div className="dim" style={{ marginTop: '4px', fontSize: '11px' }}>Then paste the token in <span className="amber">[SETTINGS]</span>.</div>
         </div>
       )}
       {/* Athlete status */}

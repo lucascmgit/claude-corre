@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useAuth } from '../context/AuthContext.jsx'
+import { RenderWithCopyCmd } from '../components/CopyCmd.jsx'
 
 const QUICK_PROMPTS = [
   'Prescribe my next run',
@@ -171,7 +172,7 @@ export default function Coach() {
                   : <div>
                       <div className="status-ok" style={{marginBottom:'2px'}}>COACH &gt;</div>
                       <div className="coach-output" style={{paddingLeft:'8px', lineHeight:'1.45'}}>
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
+                        {m.content?.startsWith('[ERROR:') ? <div className="red"><RenderWithCopyCmd text={m.content} /></div> : <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>}
                       </div>
                     </div>
                 }

@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useAuth } from '../context/AuthContext.jsx'
+import { RenderWithCopyCmd } from '../components/CopyCmd.jsx'
 
 
 const SPINNER_FRAMES = ['[/]', '[-]', '[\\]', '[|]']
@@ -149,7 +150,7 @@ function GarminSync({ hasGarminTokens, onAnalysisResult }) {
               {loadingList ? '[LOADING...]' : '[FETCH RECENT RUNS]'}
             </button>
           )}
-          {listError && <div className="red" style={{ fontSize: '13px', marginTop: '8px' }}>✗ {listError}</div>}
+          {listError && <div className="red" style={{ fontSize: '13px', marginTop: '8px' }}>✗ <RenderWithCopyCmd text={listError} /></div>}
 
           {activities && activities.length === 0 && (
             <div className="dim" style={{ fontSize: '13px' }}>No recent running activities found in Garmin Connect.</div>
