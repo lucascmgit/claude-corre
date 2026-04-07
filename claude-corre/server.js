@@ -561,16 +561,16 @@ async function ensureFreshGarminToken(userId) {
 // Helper: make a Garmin API call with auto-retry on 401
 async function garminApiFetch(userId, url, options = {}) {
   const { oauth2 } = getGarminTokens(userId)
-  if (!oauth2?.access_token) throw new Error('No Garmin token. Run browser_auth.py and paste tokens in Settings.')
+  if (!oauth2?.access_token) throw new Error('No Garmin token. Run: cd ~/projects/personal/run/claude-corre && python3 browser_auth.py — then paste tokens in Settings.')
 
   let token = isTokenExpired(oauth2) ? await refreshGarminToken(userId) : oauth2.access_token
-  if (!token) throw new Error('Garmin token expired and refresh failed. Re-run browser_auth.py.')
+  if (!token) throw new Error('Garmin token expired and refresh failed. Run: cd ~/projects/personal/run/claude-corre && python3 browser_auth.py.')
 
   let r = await fetch(url, { ...options, headers: { ...garminFetchHeaders(token), ...options.headers } })
 
   if (r.status === 401) {
     token = await refreshGarminToken(userId)
-    if (!token) throw new Error('Garmin token expired. Re-run browser_auth.py and paste tokens in Settings.')
+    if (!token) throw new Error('Garmin token expired. Run: cd ~/projects/personal/run/claude-corre && python3 browser_auth.py and paste tokens in Settings.')
     r = await fetch(url, { ...options, headers: { ...garminFetchHeaders(token), ...options.headers } })
   }
 
@@ -602,7 +602,7 @@ app.post('/api/settings', requireAuth, (req, res) => {
           o2 = encrypt(JSON.stringify(parsed))
           // Try to preserve existing oauth1 if present
         } else {
-          return res.status(400).json({ error: 'Invalid token format. Run browser_auth.py and paste the output.' })
+          return res.status(400).json({ error: 'Invalid token format. Run: cd ~/projects/personal/run/claude-corre && python3 browser_auth.py — then paste the output.' })
         }
         o2SavedAt = now
       } catch (e) {
@@ -654,13 +654,13 @@ app.get('/api/garmin-status', requireAuth, (req, res) => {
   // Determine overall health
   if (!status.hasOauth1 && !status.hasOauth2) {
     status.health = 'not_connected'
-    status.message = 'No Garmin tokens. Run browser_auth.py to connect.'
+    status.message = 'No Garmin tokens. Run: cd ~/projects/personal/run/claude-corre && python3 browser_auth.py'
   } else if (!status.hasOauth1) {
     status.health = 'degraded'
-    status.message = 'Missing OAuth1 token — cannot auto-refresh. Re-run browser_auth.py.'
+    status.message = 'Missing OAuth1 token — cannot auto-refresh. Run: cd ~/projects/personal/run/claude-corre && python3 browser_auth.py.'
   } else if (status.refreshTokenExpired) {
     status.health = 'expired'
-    status.message = 'Refresh token expired. Re-run browser_auth.py.'
+    status.message = 'Refresh token expired. Run: cd ~/projects/personal/run/claude-corre && python3 browser_auth.py.'
   } else if (status.oauth2Expired) {
     status.health = 'refreshing'
     status.message = 'Access token expired — will auto-refresh on next Garmin request.'
@@ -680,7 +680,7 @@ app.post('/api/garmin-refresh', requireAuth, async (req, res) => {
     if (fresh) {
       res.json({ ok: true, message: 'Token refreshed successfully.' })
     } else {
-      res.status(500).json({ error: 'Refresh failed. Re-run browser_auth.py.' })
+      res.status(500).json({ error: 'Refresh failed. Run: cd ~/projects/personal/run/claude-corre && python3 browser_auth.py.' })
     }
   } catch (e) { res.status(500).json({ error: e.message }) }
 })
@@ -1048,7 +1048,7 @@ app.post('/api/push-workout', requireAuth, async (req, res) => {
 
     if (!garminRes.ok) {
       const body = await garminRes.text()
-      if (garminRes.status === 401) return res.status(401).json({ error: 'Garmin token expired. Re-run browser_auth.py and paste tokens in Settings.' })
+      if (garminRes.status === 401) return res.status(401).json({ error: 'Garmin token expired. Run: cd ~/projects/personal/run/claude-corre && python3 browser_auth.py and paste tokens in Settings.' })
       return res.status(502).json({ error: `Garmin API error ${garminRes.status}: ${body}` })
     }
     const result = await garminRes.json()
@@ -1066,7 +1066,7 @@ app.get('/api/garmin-activities', requireAuth, async (req, res) => {
     const r = await garminApiFetch(req.user.sub, actUrl)
     if (!r.ok) {
       const body = await r.text()
-      return res.status(r.status === 401 ? 401 : 502).json({ error: r.status === 401 ? 'Garmin token expired. Re-run browser_auth.py.' : `Garmin API error ${r.status}: ${body}` })
+      return res.status(r.status === 401 ? 401 : 502).json({ error: r.status === 401 ? 'Garmin token expired. Run: cd ~/projects/personal/run/claude-corre && python3 browser_auth.py.' : `Garmin API error ${r.status}: ${body}` })
     }
     const list = await r.json()
     const activities = (Array.isArray(list) ? list : list.activityList || []).map(a => ({
