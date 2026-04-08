@@ -111,9 +111,12 @@ export default function Coach() {
           if (evt.error) throw new Error(evt.error)
 
           if (evt.tool) {
-            // Show tool usage as a subtle status line
             const toolLabel = evt.tool.replace(/_/g, ' ')
             setMessages(prev => [...prev.slice(0, -1), { role: 'assistant', content: rawText ? rawText + `\n\n*[${toolLabel}...]*` : `*[${toolLabel}...]*` }])
+          }
+
+          if (evt.thinking) {
+            setMessages(prev => [...prev.slice(0, -1), { role: 'assistant', content: rawText ? rawText + `\n\n*COACH THINKING (round ${evt.thinking})...*` : `*COACH THINKING (round ${evt.thinking})...*` }])
           }
 
           if (evt.chunk) {

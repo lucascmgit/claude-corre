@@ -247,6 +247,12 @@ function Step2Profile({ onDone, onBack }) {
               return [...prev.slice(0, -1), { ...last, content: last.content + `\n*[${toolLabel}...]*\n` }]
             })
           }
+          if (evt.thinking) {
+            setMessages(prev => {
+              const last = prev[prev.length - 1]
+              return [...prev.slice(0, -1), { ...last, content: last.content + `\n*COACH THINKING (round ${evt.thinking})...*\n` }]
+            })
+          }
           if (evt.chunk) {
             setMessages(prev => {
               const last = prev[prev.length - 1]

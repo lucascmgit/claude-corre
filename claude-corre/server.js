@@ -768,6 +768,7 @@ app.post('/api/ask-coach', requireAuth, async (req, res) => {
       isUpload: false,
       onChunk: chunk => send({ chunk }),
       onToolCall: (name, input) => send({ tool: name }),
+      onThinking: (round, max) => send({ thinking: round }),
     })
 
     const dataUpdated = toolCalls.some(tc =>
@@ -807,6 +808,7 @@ app.post('/api/upload-activity', requireAuth, async (req, res) => {
       isUpload: true,
       onChunk: chunk => send({ chunk }),
       onToolCall: (name, input) => send({ tool: name }),
+      onThinking: (round, max) => send({ thinking: round }),
     })
 
     // Find the prescription that was created (if any)
@@ -1117,6 +1119,7 @@ app.post('/api/import-garmin', requireAuth, async (req, res) => {
       isUpload: true,
       onChunk: chunk => send({ chunk }),
       onToolCall: (name, input) => send({ tool: name }),
+      onThinking: (round, max) => send({ thinking: round }),
     })
 
     const prescCall = toolCalls.find(tc => tc.name === 'prescribe_session')

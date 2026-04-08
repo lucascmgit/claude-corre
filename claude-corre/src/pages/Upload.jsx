@@ -17,7 +17,7 @@ function Spinner() {
 }
 
 // Reads an SSE stream and calls onChunk/onDone/onError
-async function readSse(res, { onChunk, onDone, onError, onTool }) {
+async function readSse(res, { onChunk, onDone, onError, onTool, onThinking }) {
   const reader = res.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
@@ -33,6 +33,7 @@ async function readSse(res, { onChunk, onDone, onError, onTool }) {
       try { evt = JSON.parse(line.slice(6)) } catch { continue }
       if (evt.error) { onError(evt.error); return }
       if (evt.tool && onTool) onTool(evt.tool)
+      if (evt.thinking && onThinking) onThinking(evt.thinking)
       if (evt.chunk) onChunk(evt.chunk)
       if (evt.done) onDone(evt)
     }
@@ -87,6 +88,9 @@ function GarminSync({ hasGarminTokens, onAnalysisResult }) {
         },
         onTool: name => {
           setOutput(prev => prev + `\n> [${name.replace(/_/g, ' ')}...]`)
+        },
+        onThinking: round => {
+          setOutput(prev => prev + `\n> COACH THINKING (round ${round})...`)
         },
         onDone: evt => {
           if (evt.prescription) setPrescription(evt.prescription)
@@ -302,6 +306,9 @@ export default function Upload() {
         },
         onTool: name => {
           setOutput(prev => prev + `\n> [${name.replace(/_/g, ' ')}...]`)
+        },
+        onThinking: round => {
+          setOutput(prev => prev + `\n> COACH THINKING (round ${round})...`)
         },
         onDone: evt => {
           if (evt.prescription) setPrescription(evt.prescription)

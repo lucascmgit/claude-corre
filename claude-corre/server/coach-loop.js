@@ -118,6 +118,7 @@ export async function runCoachLoop({
   isUpload = false,
   onChunk,
   onToolCall,
+  onThinking,
 }) {
   const client = new Anthropic({ apiKey })
   const db = getDb()
@@ -175,7 +176,13 @@ export async function runCoachLoop({
     const toolResults = []
     for (const block of toolUseBlocks) {
       if (onToolCall) onToolCall(block.name, block.input)
-      const result = executeToolCall(db, userId, block.name, block.input)
+      let result
+      try {
+        result = executeToolCall(db, userId, block.name, block.input)
+      } catch (e) {
+        console.error(`Tool ${block.name} error:`, e.message)
+        result = { error: `Tool failed: ${e.message}` }
+      }
       allToolCalls.push({ name: block.name, input: block.input, result })
       toolResults.push({
         type: 'tool_result',
@@ -185,6 +192,9 @@ export async function runCoachLoop({
     }
 
     currentMessages.push({ role: 'user', content: toolResults })
+
+    // Signal that the coach is thinking before the next round
+    if (onThinking) onThinking(i + 1, MAX_ITERATIONS)
   }
 
   return { toolCalls: allToolCalls, finalText }
