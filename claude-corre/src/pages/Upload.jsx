@@ -73,7 +73,7 @@ function GarminSync({ hasGarminTokens, onAnalysisResult }) {
       const res = await fetch('/api/import-garmin', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
-        body: JSON.stringify({ activityId: act.activityId, activityName: act.name }),
+        body: JSON.stringify({ activityId: act.activityId, activityName: act.name, clientDate: new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) }),
       })
       if (!res.ok) {
         const d = await res.json().catch(() => ({}))
@@ -291,7 +291,7 @@ export default function Upload() {
       const res = await fetch('/api/upload-activity', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
-        body: JSON.stringify({ csv: text, filename: file.name }),
+        body: JSON.stringify({ csv: text, filename: file.name, clientDate: new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) }),
       })
       if (!res.ok) {
         const d = await res.json().catch(() => ({}))

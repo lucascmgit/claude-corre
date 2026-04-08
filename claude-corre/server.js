@@ -744,7 +744,7 @@ app.post('/api/ask-coach', requireAuth, async (req, res) => {
   const apiKey = getUserApiKey(req.user.sub)
   if (!apiKey) return res.status(503).json({ answer: 'No Anthropic API key configured. Go to [SETTINGS] and add your API key.' })
 
-  const { question, history = [] } = req.body
+  const { question, history = [], clientDate } = req.body
 
   const safeHistory = []
   for (const m of history) {
@@ -766,6 +766,7 @@ app.post('/api/ask-coach', requireAuth, async (req, res) => {
       userId: req.user.sub,
       messages: [...safeHistory, { role: 'user', content: question }],
       isUpload: false,
+      clientDate,
       onChunk: chunk => send({ chunk }),
       onToolCall: (name, input) => send({ tool: name }),
       onThinking: (round, max) => send({ thinking: round }),
@@ -791,7 +792,7 @@ app.post('/api/upload-activity', requireAuth, async (req, res) => {
   const apiKey = getUserApiKey(req.user.sub)
   if (!apiKey) return res.status(503).json({ error: 'No Anthropic API key configured. Go to [SETTINGS].' })
 
-  const { csv, filename } = req.body
+  const { csv, filename, clientDate } = req.body
   if (!csv) return res.status(400).json({ error: 'No CSV data' })
 
   // Stream via SSE to avoid Railway 60s proxy timeout
@@ -806,6 +807,7 @@ app.post('/api/upload-activity', requireAuth, async (req, res) => {
       userId: req.user.sub,
       messages: [{ role: 'user', content: `Analyze this Garmin CSV activity (filename: ${filename}):\n\n\`\`\`csv\n${csv.slice(0, 15000)}\n\`\`\`` }],
       isUpload: true,
+      clientDate,
       onChunk: chunk => send({ chunk }),
       onToolCall: (name, input) => send({ tool: name }),
       onThinking: (round, max) => send({ thinking: round }),
@@ -1092,7 +1094,7 @@ app.post('/api/import-garmin', requireAuth, async (req, res) => {
   const apiKey = getUserApiKey(req.user.sub)
   if (!apiKey) return res.status(503).json({ error: 'No Anthropic API key configured.' })
 
-  const { activityId, activityName } = req.body
+  const { activityId, activityName, clientDate } = req.body
   if (!activityId) return res.status(400).json({ error: 'activityId required' })
 
   // Stream via SSE
@@ -1117,6 +1119,7 @@ app.post('/api/import-garmin', requireAuth, async (req, res) => {
       userId: req.user.sub,
       messages: [{ role: 'user', content: `Analyze this Garmin CSV activity (filename: ${filename}):\n\n\`\`\`csv\n${csv.slice(0, 15000)}\n\`\`\`` }],
       isUpload: true,
+      clientDate,
       onChunk: chunk => send({ chunk }),
       onToolCall: (name, input) => send({ tool: name }),
       onThinking: (round, max) => send({ thinking: round }),

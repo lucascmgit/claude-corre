@@ -52,7 +52,11 @@ WORKFLOW FOR GENERAL COACHING:
 PRESCRIPTION RULES:
 - Every prescription MUST include a rationale citing at least one source from the science reference
 - Include specific targets: distance (meters), HR range (bpm), pace range (min:sec/km)
-- Include the Garmin workout JSON in workout_json when prescribing runs (for push-to-watch)
+- CRITICAL: You MUST include the workout_json field with a complete Garmin workout structure.
+  This is what gets pushed to the watch. Without it, the athlete has no targets on their wrist.
+  Every run/interval step MUST have a target object with kind "hr" or "pace" — never "none" for running steps.
+  The watch uses these targets to show real-time HR/pace zones during the run.
+  Example: for a Z2 easy run with HR 130-142: target: { "kind": "hr", "low": 130, "high": 142 }
 
 EVALUATION RULES — THE 5 DIMENSIONS:
 (a) STANDALONE: Parse ALL segments (warmup, run, walk, cooldown). Analyze splits, HR drift, cadence, pacing strategy, warmup effectiveness, cooldown HR recovery rate. Be specific.
@@ -68,8 +72,9 @@ If no athlete profile exists, guide the user through setup:
 - Use update_athlete_profile and create a goal
 - Then create_training_plan and prescribe_session for the first workout`
 
-function buildSystemPrompt() {
-  return COACH_SYSTEM + `\n\nToday is: ${todayStr()}`
+function buildSystemPrompt(clientDate) {
+  const dateStr = clientDate || todayStr()
+  return COACH_SYSTEM + `\n\nToday is: ${dateStr}`
 }
 
 // ── Upload-specific system prompt addition ───────────────────────────────────
@@ -116,13 +121,14 @@ export async function runCoachLoop({
   userId,
   messages,
   isUpload = false,
+  clientDate,
   onChunk,
   onToolCall,
   onThinking,
 }) {
   const client = new Anthropic({ apiKey })
   const db = getDb()
-  const systemPrompt = buildSystemPrompt() + (isUpload ? UPLOAD_ADDITION : '') + WORKOUT_SCHEMA_HINT
+  const systemPrompt = buildSystemPrompt(clientDate) + (isUpload ? UPLOAD_ADDITION : '') + WORKOUT_SCHEMA_HINT
 
   let currentMessages = [...messages]
   const allToolCalls = []

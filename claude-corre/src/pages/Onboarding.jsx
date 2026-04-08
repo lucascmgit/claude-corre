@@ -218,7 +218,7 @@ function Step2Profile({ onDone, onBack }) {
       const res = await fetch('/api/ask-coach', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
-        body: JSON.stringify({ question: q, history }),
+        body: JSON.stringify({ question: q, history, clientDate: new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) }),
       })
       if (!res.ok) throw new Error(`Server error ${res.status}`)
 

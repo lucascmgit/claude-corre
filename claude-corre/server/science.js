@@ -58,12 +58,6 @@ Do NOT fabricate citations. If no source below applies, state the principle with
 - **Super-compensation:** Performance improvement occurs during recovery, not during the training stimulus. Quality sessions require 48-72h recovery. Back-to-back hard sessions without recovery blunt adaptation. (Bompa & Haff, 2009)
 - **Sleep as recovery:** Sleep deprivation (<7h) impairs glycogen resynthesis, increases cortisol, reduces HGH secretion, and degrades running economy. Non-negotiable minimum: 7-9h for training adaptation. (Halson, 2014)
 
-### HEAT ADAPTATION
-
-- **HR adjustment:** In temperatures >30C, reduce HR targets by 5-8 bpm. Cardiac output diverts to skin cooling, reducing stroke volume. Maintaining usual HR targets in heat means running at a higher physiological intensity than intended. (Periard et al., 2015)
-- **Heat acclimatization:** Requires 10-14 days of progressive heat exposure (60-90 min/day). Adaptations: lower resting core temp, earlier sweating onset, expanded plasma volume, reduced HR at given effort. (Tyler et al., 2016)
-- **Perceived exertion in heat:** RPE increases independently of metabolic demand. Use RPE as a primary intensity guide in extreme heat, not HR alone. (Periard et al., 2015)
-
 ### RUNNING ECONOMY & BIOMECHANICS
 
 - **Cadence:** Target 170-180 spm for most runners. Low cadence (<160) correlates with overstriding, excessive braking forces, and increased injury risk. Cadence can be trained with metronome drills. (Heiderscheit et al., 2011)
@@ -73,5 +67,5 @@ Do NOT fabricate citations. If no source below applies, state the principle with
 
 - **Glycogen for quality sessions:** 7-10g/kg carbohydrate on high-volume or quality session days. Inadequate glycogen impairs high-intensity performance and increases perceived effort. (Burke et al., 2011)
 - **Train-low, compete-high:** Periodic glycogen-depleted training (e.g., morning fasted easy runs) enhances mitochondrial signaling and fat oxidation. Reserve for easy sessions only — never deplete for quality work. (Hawley & Burke, 2010)
-- **Hydration:** 2% body mass loss from dehydration degrades endurance performance. In sessions >60 min or in heat, 400-800mL/h with electrolytes. (Sawka et al., 2007, ACSM position stand)
+- **Hydration:** 2% body mass loss from dehydration degrades endurance performance. In sessions >60 min, 400-800mL/h with electrolytes. (Sawka et al., 2007, ACSM position stand)
 `

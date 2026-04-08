@@ -83,7 +83,7 @@ export default function Coach() {
       const res = await fetch('/api/ask-coach', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
-        body: JSON.stringify({ question: q, history: messages.slice(-6) })
+        body: JSON.stringify({ question: q, history: messages.slice(-6), clientDate: new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) })
       })
       if (!res.ok) {
         let msg = `Server error ${res.status}`
