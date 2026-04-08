@@ -1060,18 +1060,18 @@ app.post('/api/push-workout', requireAuth, async (req, res) => {
 
   let workoutParams = null
 
-  // Try structured prescription first (has workout_json from tool-use coach)
-  if (prescription_id) {
-    const row = getDb().prepare('SELECT workout_json, description FROM prescribed_sessions WHERE id = ? AND user_id = ?').get(prescription_id, req.user.sub)
-    if (row?.workout_json) {
-      try { workoutParams = JSON.parse(row.workout_json) } catch {}
-    }
-  }
-
-  // Fallback: extract from text prescription via AI
-  if (!workoutParams) {
+  // Always extract workout structure from text via AI.
+  // We don't trust stored workout_json because the format has evolved
+  // and old prescriptions may have broken targets.
+  // The extraction prompt enforces correct target generation.
+  {
     const client = new Anthropic({ apiKey })
-    const prescText = prescription || ''
+    // Get prescription text from DB if we have an ID
+    let prescText = prescription || ''
+    if (!prescText && prescription_id) {
+      const row = getDb().prepare('SELECT description FROM prescribed_sessions WHERE id = ? AND user_id = ?').get(prescription_id, req.user.sub)
+      prescText = row?.description || ''
+    }
     try {
       const extract = await client.messages.create({
         model: 'claude-haiku-4-5-20251001',
