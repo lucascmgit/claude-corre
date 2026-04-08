@@ -878,20 +878,26 @@ const END_CONDITION_MAP = {
 function garminTarget(t) {
   if (!t || t.kind === 'none') return TARGET_NONE
   if (t.kind === 'hr') {
+    const low = Number(t.low)
+    const high = Number(t.high)
+    if (!low || !high || isNaN(low) || isNaN(high)) return TARGET_NONE
     // Garmin Connect API uses BPM + 100 offset (matches FIT binary protocol)
     return { workoutTargetTypeId: 4, workoutTargetTypeKey: 'heart.rate.between',
-      targetValueOne: t.low + 100, targetValueTwo: t.high + 100 }
+      targetValueOne: low + 100, targetValueTwo: high + 100 }
   }
   if (t.kind === 'pace') {
+    const low = Number(t.low)
+    const high = Number(t.high)
+    if (!low || !high || isNaN(low) || isNaN(high)) return TARGET_NONE
     // pace in min/km → speed in m/s. low=faster pace, high=slower pace.
-    const speedHigh = parseFloat((1000 / (t.low * 60)).toFixed(4))  // faster = higher speed
-    const speedLow  = parseFloat((1000 / (t.high * 60)).toFixed(4)) // slower = lower speed
+    const speedHigh = parseFloat((1000 / (low * 60)).toFixed(4))  // faster = higher speed
+    const speedLow  = parseFloat((1000 / (high * 60)).toFixed(4)) // slower = lower speed
     return { workoutTargetTypeId: 5, workoutTargetTypeKey: 'speed.between',
       targetValueOne: speedLow, targetValueTwo: speedHigh }
   }
   if (t.kind === 'cadence') {
     return { workoutTargetTypeId: 3, workoutTargetTypeKey: 'cadence.between',
-      targetValueOne: t.low, targetValueTwo: t.high }
+      targetValueOne: Number(t.low), targetValueTwo: Number(t.high) }
   }
   return TARGET_NONE
 }
@@ -915,6 +921,40 @@ function garminRepeat(r, order) {
     stepType: { stepTypeId: 6, stepTypeKey: 'repeat' },
     numberOfIterations: r.reps,
     workoutSteps: r.steps.map((s, i) => garminStep(s, i + 1)),
+  }
+}
+
+// Extract HR or pace targets from step description text if the structured target is missing.
+// This catches cases where Claude puts targets only in the description string.
+function fixStepTarget(step) {
+  if (!step) return
+  const hasTarget = step.target && step.target.kind && step.target.kind !== 'none'
+  if (hasTarget) return // already has a proper target
+
+  const desc = (step.description || '').toLowerCase()
+
+  // Try to find HR range: "hr 130-142", "HR: 130–142", "heart rate 130-142 bpm"
+  const hrMatch = desc.match(/(?:hr|heart\s*rate)[:\s]*(\d{2,3})\s*[-–to]+\s*(\d{2,3})/)
+  if (hrMatch) {
+    step.target = { kind: 'hr', low: parseInt(hrMatch[1]), high: parseInt(hrMatch[2]) }
+    return
+  }
+
+  // Try to find pace range: "8:00-8:15/km", "pace 7:30–8:00", "hold 8:00-8:15"
+  const paceMatch = desc.match(/(\d):(\d{2})\s*[-–to]+\s*(\d):(\d{2})/)
+  if (paceMatch) {
+    const fast = parseInt(paceMatch[1]) + parseInt(paceMatch[2]) / 60
+    const slow = parseInt(paceMatch[3]) + parseInt(paceMatch[4]) / 60
+    step.target = { kind: 'pace', low: Math.min(fast, slow), high: Math.max(fast, slow) }
+    return
+  }
+
+  // Try single HR: "below 142", "under 133", "HR < 142"
+  const hrSingle = desc.match(/(?:below|under|<|max\s*hr)\s*(\d{2,3})/)
+  if (hrSingle) {
+    const max = parseInt(hrSingle[1])
+    step.target = { kind: 'hr', low: Math.max(max - 20, 100), high: max }
+    return
   }
 }
 
@@ -991,15 +1031,18 @@ Target variants:
   None:      { "kind": "none" }
 
 RULES:
-- Use "hr" target when HR zones are mentioned (e.g. Z2, keep HR 130-142, aerobic)
-- Use "pace" target when pace is mentioned (e.g. 5:30/km → low:5.5, 6:00/km → low:6.0)
-- Use "none" for warmup, cooldown, recovery/walk steps
-- For run/walk intervals: use "repeat" with run step (interval) + walk step (recovery)
-- For continuous runs: single "step" with "distance" or "time" end condition
+- EVERY running step MUST have a target with kind "hr" or "pace". NEVER use "none" for running steps.
+  The watch needs real targets to guide the athlete. If the prescription mentions HR zones (Z2, keep HR 130-142),
+  use "hr" target. If it mentions pace (8:00/km, hold 7:30-8:00), use "pace" target.
+  If both are mentioned, prefer "hr" — it's more reliable for effort control.
+- Use "none" ONLY for warmup, cooldown, and recovery/walk steps.
+- For a continuous easy run: break it into per-km steps if the prescription specifies different paces per segment.
+  Otherwise, one step with distance end condition is fine, but it MUST have an HR or pace target.
+- For run/walk intervals: use "repeat" with run step (interval, with HR or pace target) + walk step (recovery, target "none")
 - For tempo with sets: use "repeat"
 - Default warmup: 300s, cooldown: 300s unless prescription specifies otherwise
-- Recovery/walk steps use stepKey "recovery" and target "none"
 - Respond with JSON only
+- Pace values are decimal min/km: 5:30/km → low:5.5, 6:00/km → low:6.0, 8:00/km → low:8.0, 8:15/km → low:8.25
 
 PRESCRIPTION:
 `
@@ -1046,7 +1089,16 @@ app.post('/api/push-workout', requireAuth, async (req, res) => {
   }
 
   try {
+    // Validate and fix workout params before building
+    for (const step of (workoutParams.main || [])) {
+      if (step.kind === 'repeat') {
+        for (const s of (step.steps || [])) fixStepTarget(s)
+      } else {
+        fixStepTarget(step)
+      }
+    }
     const workout = buildGarminWorkout(workoutParams)
+    console.log('Garmin workout payload:', JSON.stringify(workout, null, 2))
     const garminRes = await garminApiFetch(req.user.sub, 'https://connectapi.garmin.com/workout-service/workout', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
