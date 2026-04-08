@@ -881,19 +881,23 @@ function garminTarget(t) {
     const low = Number(t.low)
     const high = Number(t.high)
     if (!low || !high || isNaN(low) || isNaN(high)) return TARGET_NONE
-    // Garmin Connect API uses BPM + 100 offset (matches FIT binary protocol)
-    return { workoutTargetTypeId: 4, workoutTargetTypeKey: 'heart.rate.between',
-      targetValueOne: low + 100, targetValueTwo: high + 100 }
+    // Garmin Connect JSON API: raw BPM values, NO +100 offset.
+    // The +100 offset is for the FIT binary protocol only, not the JSON API.
+    return { workoutTargetTypeId: 4, workoutTargetTypeKey: 'heart.rate.zone',
+      targetValueOne: low, targetValueTwo: high }
   }
   if (t.kind === 'pace') {
-    const low = Number(t.low)
-    const high = Number(t.high)
+    const low = Number(t.low)   // faster pace in decimal min/km (e.g., 8.0)
+    const high = Number(t.high) // slower pace in decimal min/km (e.g., 8.25)
     if (!low || !high || isNaN(low) || isNaN(high)) return TARGET_NONE
-    // pace in min/km → speed in m/s. low=faster pace, high=slower pace.
-    const speedHigh = parseFloat((1000 / (low * 60)).toFixed(4))  // faster = higher speed
-    const speedLow  = parseFloat((1000 / (high * 60)).toFixed(4)) // slower = lower speed
-    return { workoutTargetTypeId: 5, workoutTargetTypeKey: 'speed.between',
-      targetValueOne: speedLow, targetValueTwo: speedHigh }
+    // Garmin Connect API uses speed in m/s. pace.zone targetType.
+    // low = faster pace = higher speed (targetValueTwo)
+    // high = slower pace = lower speed (targetValueOne)
+    const speedFromFast = parseFloat((1000 / (low * 60)).toFixed(4))
+    const speedFromSlow = parseFloat((1000 / (high * 60)).toFixed(4))
+    return { workoutTargetTypeId: 6, workoutTargetTypeKey: 'pace.zone',
+      targetValueOne: Math.min(speedFromFast, speedFromSlow),
+      targetValueTwo: Math.max(speedFromFast, speedFromSlow) }
   }
   if (t.kind === 'cadence') {
     return { workoutTargetTypeId: 3, workoutTargetTypeKey: 'cadence.between',

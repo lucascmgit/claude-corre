@@ -93,22 +93,41 @@ The user is uploading a Garmin activity file. You must:
 
 const WORKOUT_SCHEMA_HINT = `
 GARMIN WORKOUT JSON FORMAT (for workout_json field in prescribe_session):
+
+The watch displays each step as a separate screen with the target visible. The athlete sees "Step 1 of 5: Run 1.00 km — HR 120-133" on their wrist. This is how you control their execution.
+
+STRUCTURE:
 {
   "name": "<short name, max 35 chars>",
   "description": "<1-2 sentences>",
-  "warmupSeconds": <number, default 300>,
+  "warmupSeconds": <number, default 360>,
   "cooldownSeconds": <number, default 300>,
-  "main": [
-    { "kind": "step", "stepKey": "interval"|"rest"|"recovery"|"other",
-      "endKind": "distance"|"time"|"lapbutton", "endValue": <meters or seconds>,
-      "target": { "kind": "hr"|"pace"|"cadence"|"none", "low": <number>, "high": <number> },
-      "description": "<execution cue>" }
-    OR
-    { "kind": "repeat", "reps": <number>, "steps": [<Step>, ...] }
-  ]
+  "main": [<Step or Repeat>]
 }
-Pace target: low = fast pace (decimal min/km, e.g. 6.0), high = slow pace.
-HR target: low/high in bpm (no offset — server handles +100).`
+
+STEP: { "kind": "step", "stepKey": "interval"|"recovery"|"rest"|"other",
+  "endKind": "distance"|"time", "endValue": <meters for distance, seconds for time>,
+  "target": <Target>, "description": "<execution cue>" }
+
+REPEAT: { "kind": "repeat", "reps": <number>, "steps": [<Step>, ...] }
+
+TARGET (one of):
+  HR:      { "kind": "hr", "low": <bpm>, "high": <bpm> }         — raw BPM, no offset
+  Pace:    { "kind": "pace", "low": <fast min/km>, "high": <slow min/km> } — decimal (8:15/km = 8.25)
+  Cadence: { "kind": "cadence", "low": <spm>, "high": <spm> }
+  None:    { "kind": "none" }   — ONLY for warmup/cooldown/recovery walks
+
+CRITICAL RULES:
+1. EVERY running step MUST have target kind "hr" or "pace". Never "none" for running.
+2. Break the workout into SEPARATE STEPS per segment. If km1 has different targets than km2-3, make them separate steps:
+   - Step 1: 1000m at pace 8.0-8.5 (km 1)
+   - Step 2: 2000m at pace 7.75-8.25 (km 2-3)
+   - Step 3: 2000m at pace 7.75-8.25 (km 4-5)
+   The watch will guide the athlete through each step with the correct target shown.
+3. endValue for distance is in METERS (1km = 1000, 2km = 2000, 5km = 5000)
+4. Pace values are decimal min/km: 5:30 = 5.5, 6:00 = 6.0, 7:45 = 7.75, 8:00 = 8.0, 8:15 = 8.25
+5. For run/walk intervals: use "repeat" with interval step (hr/pace target) + recovery step (target "none")
+6. The watch enforces targets with alerts — the athlete sees and hears when out of range`
 
 // ── The agentic loop ─────────────────────────────────────────────────────────
 
