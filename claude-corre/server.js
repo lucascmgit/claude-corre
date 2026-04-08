@@ -981,7 +981,7 @@ function buildGarminWorkout(params) {
       type: 'ExecutableStepDTO', stepOrder: order++,
       stepType: STEP_TYPE_MAP.warmup,
       endCondition: END_CONDITION_MAP.time, endConditionValue: params.warmupSeconds,
-      targetType: TARGET_NONE,
+      targetType: TARGET_NONE, targetValueOne: null, targetValueTwo: null,
       description: `Walk ${Math.round(params.warmupSeconds / 60)} min — warm up`,
     })
   }
@@ -996,7 +996,7 @@ function buildGarminWorkout(params) {
       type: 'ExecutableStepDTO', stepOrder: order++,
       stepType: STEP_TYPE_MAP.cooldown,
       endCondition: END_CONDITION_MAP.time, endConditionValue: params.cooldownSeconds,
-      targetType: TARGET_NONE,
+      targetType: TARGET_NONE, targetValueOne: null, targetValueTwo: null,
       description: `Walk ${Math.round(params.cooldownSeconds / 60)} min — cool down`,
     })
   }
