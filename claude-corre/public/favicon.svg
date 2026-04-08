@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <rect width="64" height="64" rx="8" fill="#0a0a0a"/>
+  <!-- Sole -->
+  <path d="M8 46 L12 42 L52 42 L56 46 L54 48 L10 48 Z" fill="#d4a030" opacity="0.6"/>
+  <!-- Shoe body -->
+  <path d="M12 42 L14 28 L20 22 L28 20 L36 22 L48 26 L52 32 L52 42 Z" fill="#d4a030"/>
+  <!-- Toe cap line -->
+  <path d="M12 42 L14 28 L20 24" stroke="#0a0a0a" stroke-width="1.5" fill="none"/>
+  <!-- Upper detail / collar -->
+  <path d="M36 22 L40 18 L48 18 L52 22 L52 32" stroke="#0a0a0a" stroke-width="1.5" fill="none"/>
+  <!-- Swoosh-free accent stripe -->
+  <path d="M18 36 Q30 28 50 34" stroke="#0a0a0a" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+  <!-- Lace dots -->
+  <circle cx="30" cy="23" r="1.2" fill="#0a0a0a"/>
+  <circle cx="34" cy="22" r="1.2" fill="#0a0a0a"/>
+  <circle cx="38" cy="21.5" r="1.2" fill="#0a0a0a"/>
+  <!-- Sole tread lines -->
+  <line x1="16" y1="47" x2="16" y2="43" stroke="#0a0a0a" stroke-width="1" opacity="0.5"/>
+  <line x1="22" y1="47" x2="22" y2="43" stroke="#0a0a0a" stroke-width="1" opacity="0.5"/>
+  <line x1="28" y1="47" x2="28" y2="43" stroke="#0a0a0a" stroke-width="1" opacity="0.5"/>
+  <line x1="34" y1="47" x2="34" y2="43" stroke="#0a0a0a" stroke-width="1" opacity="0.5"/>
+  <line x1="40" y1="47" x2="40" y2="43" stroke="#0a0a0a" stroke-width="1" opacity="0.5"/>
+  <line x1="46" y1="47" x2="46" y2="43" stroke="#0a0a0a" stroke-width="1" opacity="0.5"/>
+</svg>
