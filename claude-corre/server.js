@@ -875,45 +875,54 @@ const END_CONDITION_MAP = {
   lapbutton: { conditionTypeId: 1, conditionTypeKey: 'lap.button' },
 }
 
+// Returns { targetType, targetValueOne, targetValueTwo } as SEPARATE fields.
+// targetValueOne/Two are step-level fields in the Garmin API, NOT nested inside targetType.
 function garminTarget(t) {
-  if (!t || t.kind === 'none') return TARGET_NONE
+  const none = { targetType: TARGET_NONE }
+  if (!t || t.kind === 'none') return none
   if (t.kind === 'hr') {
     const low = Number(t.low)
     const high = Number(t.high)
-    if (!low || !high || isNaN(low) || isNaN(high)) return TARGET_NONE
-    // Garmin Connect JSON API: raw BPM values, NO +100 offset.
-    // The +100 offset is for the FIT binary protocol only, not the JSON API.
-    return { workoutTargetTypeId: 4, workoutTargetTypeKey: 'heart.rate.zone',
-      targetValueOne: low, targetValueTwo: high }
+    if (!low || !high || isNaN(low) || isNaN(high)) return none
+    return {
+      targetType: { workoutTargetTypeId: 4, workoutTargetTypeKey: 'heart.rate.zone' },
+      targetValueOne: low,
+      targetValueTwo: high,
+    }
   }
   if (t.kind === 'pace') {
-    const low = Number(t.low)   // faster pace in decimal min/km (e.g., 8.0)
-    const high = Number(t.high) // slower pace in decimal min/km (e.g., 8.25)
-    if (!low || !high || isNaN(low) || isNaN(high)) return TARGET_NONE
-    // Garmin Connect API uses speed in m/s. pace.zone targetType.
-    // low = faster pace = higher speed (targetValueTwo)
-    // high = slower pace = lower speed (targetValueOne)
+    const low = Number(t.low)
+    const high = Number(t.high)
+    if (!low || !high || isNaN(low) || isNaN(high)) return none
     const speedFromFast = parseFloat((1000 / (low * 60)).toFixed(4))
     const speedFromSlow = parseFloat((1000 / (high * 60)).toFixed(4))
-    return { workoutTargetTypeId: 6, workoutTargetTypeKey: 'pace.zone',
+    return {
+      targetType: { workoutTargetTypeId: 6, workoutTargetTypeKey: 'pace.zone' },
       targetValueOne: Math.min(speedFromFast, speedFromSlow),
-      targetValueTwo: Math.max(speedFromFast, speedFromSlow) }
+      targetValueTwo: Math.max(speedFromFast, speedFromSlow),
+    }
   }
   if (t.kind === 'cadence') {
-    return { workoutTargetTypeId: 3, workoutTargetTypeKey: 'cadence.between',
-      targetValueOne: Number(t.low), targetValueTwo: Number(t.high) }
+    return {
+      targetType: { workoutTargetTypeId: 3, workoutTargetTypeKey: 'cadence.between' },
+      targetValueOne: Number(t.low),
+      targetValueTwo: Number(t.high),
+    }
   }
-  return TARGET_NONE
+  return none
 }
 
 function garminStep(s, order) {
+  const target = garminTarget(s.target)
   return {
     type: 'ExecutableStepDTO',
     stepOrder: order,
     stepType: STEP_TYPE_MAP[s.stepKey] || STEP_TYPE_MAP.interval,
     endCondition: END_CONDITION_MAP[s.endKind] || END_CONDITION_MAP.time,
     endConditionValue: s.endValue || 0,
-    targetType: garminTarget(s.target),
+    targetType: target.targetType,
+    targetValueOne: target.targetValueOne ?? null,
+    targetValueTwo: target.targetValueTwo ?? null,
     description: s.description || '',
   }
 }
