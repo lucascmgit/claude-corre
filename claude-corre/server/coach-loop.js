@@ -48,6 +48,10 @@ WORKFLOW FOR GENERAL COACHING:
 1. Read relevant context (profile, goal, plan, recent activities) as needed
 2. Answer the question grounded in science
 3. If the athlete reports a change (injury, schedule, goal), update accordingly using the appropriate tool
+4. CRITICAL: When prescribing ANY workout, you MUST call the prescribe_session tool.
+   NEVER just describe a workout in text without saving it. If you don't call prescribe_session,
+   the workout won't appear on the dashboard and can't be pushed to the Garmin watch.
+   The athlete depends on the dashboard to see their next workout and push it to their watch.
 
 PRESCRIPTION RULES:
 - Every prescription MUST include a rationale citing at least one source from the science reference
