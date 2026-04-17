@@ -50,8 +50,10 @@ export default function Coach() {
       .then(r => r.json())
       .then(d => {
         if (d.messages && d.messages.length > 0) {
-          // Restore up to 20 messages for display (oldest first, keep welcome at top)
-          setMessages([WELCOME_MSG, ...d.messages.slice(-20)])
+          // Only show messages from the last 3 days
+          const cutoff = Date.now() - 3 * 24 * 60 * 60 * 1000
+          const recent = d.messages.filter(m => !m.ts || m.ts >= cutoff).slice(-20)
+          if (recent.length > 0) setMessages([WELCOME_MSG, ...recent])
         }
       })
       .catch(() => {})
@@ -132,7 +134,8 @@ export default function Coach() {
       }
       // Persist history (skip the welcome message at index 0)
       setMessages(prev => {
-        const toSave = prev.slice(1).filter(m => m.content) // exclude welcome + empty bubbles
+        const now = Date.now()
+        const toSave = prev.slice(1).filter(m => m.content).map(m => ({ ...m, ts: m.ts || now }))
         fetch('/api/chat-history', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...getAuthHeader() },

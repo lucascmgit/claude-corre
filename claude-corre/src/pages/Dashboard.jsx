@@ -353,7 +353,10 @@ export default function Dashboard() {
     }
     load()
     window.addEventListener('log-updated', load)
-    return () => window.removeEventListener('log-updated', load)
+    // Reload when tab becomes visible (user switches back from Coach tab)
+    function onVisible() { if (document.visibilityState === 'visible') load() }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => { window.removeEventListener('log-updated', load); document.removeEventListener('visibilitychange', onVisible) }
   }, [])
 
   async function pushToGarmin() {
