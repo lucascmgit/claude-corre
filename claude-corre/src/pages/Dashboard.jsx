@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useAuth } from '../context/AuthContext.jsx'
+import { usePrescription } from '../context/PrescriptionContext.jsx'
 import { GarminAuthCmd, RenderWithCopyCmd } from '../components/CopyCmd.jsx'
 
 const SPARK_CHARS = '▁▂▃▄▅▆▇█'
@@ -305,6 +306,7 @@ function LatestEvaluation({ evaluation }) {
 
 export default function Dashboard() {
   const { getAuthHeader } = useAuth()
+  const { prescription: pendingPrescription } = usePrescription()
   const navigate = useNavigate()
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -313,7 +315,6 @@ export default function Dashboard() {
   const [garminMsg, setGarminMsg] = useState('')
   const [trainingLoad, setTrainingLoad] = useState(null)
   const [latestEval, setLatestEval] = useState(null)
-  const [pendingPrescription, setPendingPrescription] = useState(null)
   const [trends, setTrends] = useState(null)
 
   const onboardChecked = useRef(false)
@@ -321,14 +322,11 @@ export default function Dashboard() {
   function load() {
     setLoading(true)
     const headers = getAuthHeader()
-    // Fetch both legacy dashboard and new structured data
     Promise.all([
       fetch('/api/dashboard', { headers }).then(r => r.ok ? r.json() : null),
-      fetch('/api/prescriptions?status=pending&limit=1', { headers }).then(r => r.ok ? r.json() : { prescriptions: [] }).catch(() => ({ prescriptions: [] })),
       fetch('/api/structured-activities?limit=1', { headers }).then(r => r.ok ? r.json() : { activities: [] }).catch(() => ({ activities: [] })),
-    ]).then(([d, prescs, acts]) => {
+    ]).then(([d, acts]) => {
       if (d) setData(d)
-      if (prescs.prescriptions?.[0]) setPendingPrescription(prescs.prescriptions[0])
       if (acts.activities?.[0]?.id) {
         fetch(`/api/structured-activities/${acts.activities[0].id}`, { headers })
           .then(r => r.ok ? r.json() : null)
@@ -337,13 +335,11 @@ export default function Dashboard() {
       }
       setLoading(false)
     }).catch(() => setLoading(false))
-    // Fetch training load and trends separately (non-blocking)
     fetch('/api/training-load', { headers }).then(r => r.ok ? r.json() : null).then(d => { if (d) setTrainingLoad(d) }).catch(() => {})
     fetch('/api/trends', { headers }).then(r => r.ok ? r.json() : null).then(d => { if (d) setTrends(d) }).catch(() => {})
   }
 
   useEffect(() => {
-    // Redirect to onboarding if setup is incomplete (first load only)
     if (!onboardChecked.current) {
       onboardChecked.current = true
       fetch('/api/onboard-status', { headers: getAuthHeader() })
@@ -353,10 +349,7 @@ export default function Dashboard() {
     }
     load()
     window.addEventListener('log-updated', load)
-    // Reload when tab becomes visible (user switches back from Coach tab)
-    function onVisible() { if (document.visibilityState === 'visible') load() }
-    document.addEventListener('visibilitychange', onVisible)
-    return () => { window.removeEventListener('log-updated', load); document.removeEventListener('visibilitychange', onVisible) }
+    return () => window.removeEventListener('log-updated', load)
   }, [])
 
   async function pushToGarmin() {
@@ -367,7 +360,7 @@ export default function Dashboard() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
         body: JSON.stringify({
-          prescription: pendingPrescription?.description || data?.prescription,
+          prescription: pendingPrescription?.description,
           prescription_id: pendingPrescription?.id,
         }),
       })
@@ -423,31 +416,30 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Prescribed session */}
-      {prescription && prescription.length > 10 && (
+      {/* Prescribed session — from shared PrescriptionContext */}
+      {pendingPrescription && (
         <div className="term-box">
           <div className="term-box-title">
-            <span>PRESCRIBED SESSION</span>
-            <span className="status-ok">● CURRENT</span>
+            <span>NEXT WORKOUT</span>
+            <span className="status-ok">● {pendingPrescription.prescribed_date}</span>
           </div>
-          <div className="term-box-body coach-output" style={{ fontSize: '13px' }}>
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{prescription}</ReactMarkdown>
-            {hasGarminTokens && (
-              <div style={{ marginTop: '12px', display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-                <button
-                  className="term-btn amber"
-                  onClick={pushToGarmin}
-                  disabled={garminStatus === 'pushing'}
-                >
-                  {garminStatus === 'pushing' ? '[PUSHING...]' : '[PUSH TO GARMIN ↑]'}
-                </button>
-                {garminStatus === 'ok' && <span className="status-ok" style={{ fontSize: '13px' }}>✓ {garminMsg}</span>}
-                {garminStatus === 'error' && <span className="red" style={{ fontSize: '13px' }}>✗ {garminMsg}</span>}
+          <div className="term-box-body coach-output" style={{ fontSize: '14px' }}>
+            <div style={{ marginBottom: '8px' }}>
+              <span className="amber" style={{ textTransform: 'uppercase' }}>{(pendingPrescription.session_type || '').replace('_', ' ')}</span>
+            </div>
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{pendingPrescription.description || ''}</ReactMarkdown>
+            {pendingPrescription.rationale && (
+              <div style={{ marginTop: '8px', fontSize: '13px', color: '#888' }}>
+                <strong className="amber">Rationale:</strong> {pendingPrescription.rationale}
               </div>
             )}
-            {!hasGarminTokens && (
-              <div style={{ marginTop: '10px', fontSize: '12px', color: '#444' }}>
-                Add Garmin tokens in <span className="amber">[SETTINGS]</span> to push workouts to your watch.
+            {hasGarminTokens && (
+              <div style={{ marginTop: '12px', display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                <button className="term-btn amber" onClick={pushToGarmin} disabled={garminStatus === 'pushing'}>
+                  {garminStatus === 'pushing' ? '[PUSHING...]' : '[PUSH TO GARMIN]'}
+                </button>
+                {garminStatus === 'ok' && <span className="status-ok" style={{ fontSize: '13px' }}>✓ {garminMsg}</span>}
+                {garminStatus === 'error' && <span className="red" style={{ fontSize: '13px' }}><RenderWithCopyCmd text={garminMsg} /></span>}
               </div>
             )}
           </div>

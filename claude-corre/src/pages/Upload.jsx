@@ -46,6 +46,7 @@ function GarminSync({ hasGarminTokens, onAnalysisResult }) {
   const [loadingList, setLoadingList] = useState(false)
   const [listError, setListError] = useState('')
   const [analyzing, setAnalyzing] = useState(null)
+  const [choosingActivity, setChoosingActivity] = useState(null) // activity waiting for prescribed/other choice
   const [output, setOutput] = useState('')
   const [prescription, setPrescription] = useState('')
   const [garminStatus, setGarminStatus] = useState(null)
@@ -63,9 +64,10 @@ function GarminSync({ hasGarminTokens, onAnalysisResult }) {
     setLoadingList(false)
   }
 
-  async function importActivity(act) {
+  async function importActivity(act, isPrescribed) {
+    setChoosingActivity(null)
     setAnalyzing(act.activityId)
-    setOutput(`> Fetching "${act.name}" from Garmin Connect...\n> Downloading activity CSV...\n> Analyzing with Claude coach...\n`)
+    setOutput(`> Fetching "${act.name}" from Garmin Connect...\n> ${isPrescribed ? 'Comparing to prescribed workout...' : 'Recording as extra activity...'}\n> Analyzing with Claude coach...\n`)
     setPrescription('')
     setGarminStatus(null)
 
@@ -73,7 +75,13 @@ function GarminSync({ hasGarminTokens, onAnalysisResult }) {
       const res = await fetch('/api/import-garmin', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
-        body: JSON.stringify({ activityId: act.activityId, activityName: act.name, clientDate: new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) }),
+        body: JSON.stringify({
+          activityId: act.activityId,
+          activityName: act.name,
+          activityDate: act.date,
+          isPrescribed,
+          clientDate: new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }),
+        }),
       })
       if (!res.ok) {
         const d = await res.json().catch(() => ({}))
@@ -173,15 +181,24 @@ function GarminSync({ hasGarminTokens, onAnalysisResult }) {
                     <td className="nowrap">{a.distance}</td>
                     <td className="nowrap">{a.duration}</td>
                     <td className="nowrap">{a.avgHR || '—'}</td>
-                    <td>
-                      <button
-                        className="term-btn amber"
-                        style={{ fontSize: '11px', padding: '2px 8px' }}
-                        onClick={() => importActivity(a)}
-                        disabled={!!analyzing}
-                      >
-                        {analyzing === a.activityId ? '[...]' : '[ANALYZE]'}
-                      </button>
+                    <td style={{ whiteSpace: 'nowrap' }}>
+                      {choosingActivity?.activityId === a.activityId ? (
+                        <div style={{ display: 'flex', gap: '4px' }}>
+                          <button className="term-btn amber" style={{ fontSize: '10px', padding: '2px 6px' }}
+                            onClick={() => importActivity(a, true)}>[PRESCRIBED]</button>
+                          <button className="term-btn" style={{ fontSize: '10px', padding: '2px 6px' }}
+                            onClick={() => importActivity(a, false)}>[OTHER]</button>
+                        </div>
+                      ) : (
+                        <button
+                          className="term-btn amber"
+                          style={{ fontSize: '11px', padding: '2px 8px' }}
+                          onClick={() => setChoosingActivity(a)}
+                          disabled={!!analyzing}
+                        >
+                          {analyzing === a.activityId ? '[...]' : '[ANALYZE]'}
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}

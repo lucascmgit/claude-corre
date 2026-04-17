@@ -416,6 +416,9 @@ function handleWriteWorkoutEvaluation(db, userId, input) {
 
 function handlePrescribeSession(db, userId, input) {
   const id = randomUUID()
+  // Supersede any existing pending prescriptions — only one "next workout" at a time
+  db.prepare("UPDATE prescribed_sessions SET status = 'superseded' WHERE user_id = ? AND status = 'pending'").run(userId)
+
   // Find active plan and phase
   const plan = db.prepare("SELECT id FROM training_plans WHERE user_id = ? AND status = 'active' LIMIT 1").get(userId)
   const phase = plan ? db.prepare("SELECT id FROM plan_phases WHERE plan_id = ? AND status = 'active' LIMIT 1").get(plan.id) : null

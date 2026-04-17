@@ -225,6 +225,17 @@ export function initDb() {
     db.exec('ALTER TABLE user_settings ADD COLUMN garmin_oauth2_saved_at INTEGER')
   }
 
+  // Migrate: ensure only one pending prescription per user (supersede duplicates)
+  db.exec(`
+    UPDATE prescribed_sessions SET status = 'superseded'
+    WHERE status = 'pending' AND id NOT IN (
+      SELECT id FROM (
+        SELECT id, user_id, ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY created_at DESC) as rn
+        FROM prescribed_sessions WHERE status = 'pending'
+      ) WHERE rn = 1
+    )
+  `)
+
   console.log(`Database ready: ${DB_PATH}`)
   return db
 }

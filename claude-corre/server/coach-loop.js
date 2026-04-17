@@ -89,9 +89,10 @@ ACTIVITY UPLOAD CONTEXT:
 The user is uploading a Garmin activity file. You must:
 1. Parse the CSV data to extract ALL segments: warmup, run intervals, walk intervals, cooldown
 2. Analyze the FULL session — warmup and cooldown are prescribed and contain useful data (HR recovery rate, readiness signals). Walk intervals in run/walk sessions are integral to the prescription, not noise to filter out.
-3. For prescription comparison, compare the full session structure (including warmup/cooldown duration, walk/run interval pattern) against what was prescribed
-4. Follow the full WORKFLOW FOR ACTIVITY UPLOAD/ANALYSIS above
-5. Present a clear, structured analysis covering all 5 evaluation dimensions`
+3. Use the activity_date provided in the user message — do NOT infer dates from CSV content or workout names.
+4. Follow the full WORKFLOW FOR ACTIVITY UPLOAD/ANALYSIS above.
+5. If the user says this was the PRESCRIBED workout: compare against the provided prescription, use the prescribed_session_id when calling record_activity, and evaluate all 5 dimensions.
+6. If the user says this was NOT prescribed: record it normally WITHOUT prescribed_session_id, skip dimensions (b) prescription comparison and (c) adherence scoring, but still evaluate (a) standalone, (d) trends, and (e) goal progress. The activity still counts toward training load.`
 
 // ── Garmin workout builder schema (for workout_json in prescriptions) ────────
 

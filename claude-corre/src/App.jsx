@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, NavLink, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './context/AuthContext.jsx'
+import { PrescriptionProvider } from './context/PrescriptionContext.jsx'
 import Dashboard from './pages/Dashboard.jsx'
 import Upload from './pages/Upload.jsx'
 import Coach from './pages/Coach.jsx'
@@ -74,7 +75,9 @@ export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <AppShell />
+        <PrescriptionProvider>
+          <AppShell />
+        </PrescriptionProvider>
       </AuthProvider>
     </BrowserRouter>
   )
