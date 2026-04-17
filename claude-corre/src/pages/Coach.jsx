@@ -39,6 +39,7 @@ export default function Coach() {
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [lastLogStatus, setLastLogStatus] = useState(null) // 'saved' | 'not-saved' | null
+  const [toolsUsed, setToolsUsed] = useState([])
   const bottomRef = useRef()
   const historyLoaded = useRef(false)
 
@@ -77,6 +78,7 @@ export default function Coach() {
     setMessages(prev => [...prev, { role: 'user', content: q }])
     setLoading(true)
     setLastLogStatus(null)
+    setToolsUsed([])
 
     // Add empty assistant placeholder for streaming
     setMessages(prev => [...prev, { role: 'assistant', content: '' }])
@@ -114,6 +116,7 @@ export default function Coach() {
 
           if (evt.tool) {
             const toolLabel = evt.tool.replace(/_/g, ' ')
+            setToolsUsed(prev => [...prev, evt.tool])
             setMessages(prev => [...prev.slice(0, -1), { role: 'assistant', content: rawText ? rawText + `\n\n*[${toolLabel}...]*` : `*[${toolLabel}...]*` }])
           }
 
@@ -165,6 +168,22 @@ export default function Coach() {
           </div>
         </div>
         <div className="term-box-body">
+
+          {/* Tools status bar */}
+          {toolsUsed.length > 0 && (
+            <div style={{ marginBottom: '8px', padding: '4px 8px', background: '#0d0d0d', border: '1px solid #222', fontSize: '11px', fontFamily: 'var(--font-mono)' }}>
+              <span className="dim">TOOLS: </span>
+              {toolsUsed.map((t, i) => (
+                <span key={i}>
+                  <span className={t === 'prescribe_session' ? 'status-ok' : 'amber'}>{t.replace(/_/g, ' ')}</span>
+                  {i < toolsUsed.length - 1 && <span className="dim"> → </span>}
+                </span>
+              ))}
+              {!loading && !toolsUsed.includes('prescribe_session') && toolsUsed.length > 0 && (
+                <span className="dim" style={{ marginLeft: '8px' }}>(no prescription saved)</span>
+              )}
+            </div>
+          )}
 
           {/* Chat log */}
           <div className="term-output" style={{maxHeight:'500px', marginBottom:'12px'}}>
