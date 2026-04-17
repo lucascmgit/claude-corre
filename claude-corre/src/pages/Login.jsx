@@ -34,7 +34,7 @@ export default function Login() {
     <div style={{ maxWidth: '480px', margin: '60px auto', padding: '0 16px' }}>
       <div style={{ marginBottom: '32px' }}>
         <div className="logo-title" style={{ fontSize: '48px' }}>CLAUDE CORRE</div>
-        <div className="header-tagline">// AI RUNNING COACH TERMINAL v1.0</div>
+        <div className="header-tagline">// AI RUNNING COACH</div>
       </div>
 
       <div className="term-box">

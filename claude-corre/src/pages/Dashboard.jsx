@@ -204,8 +204,8 @@ function ActivityRow({ act, expanded, onToggle }) {
         <td className="nowrap">{act.Distance || '—'}</td>
         <td className="nowrap">{act['Avg Pace'] || '—'}</td>
         <td className={`nowrap ${hrClass}`}>{act['Avg HR'] || '—'}</td>
-        <td className="nowrap">{act['Max HR'] || '—'}</td>
-        <td className="dim" style={{ fontSize: '13px' }}>{act.Notes || '—'}</td>
+        <td className="nowrap hide-mobile">{act['Max HR'] || '—'}</td>
+        <td className="dim hide-mobile" style={{ fontSize: '13px' }}>{act.Notes || '—'}</td>
       </tr>
       {expanded && (
         <tr>
@@ -460,30 +460,6 @@ export default function Dashboard() {
       {/* Latest workout evaluation */}
       <LatestEvaluation evaluation={latestEval} />
 
-      {/* Training zones */}
-      {zones.length > 0 && (
-        <div className="term-box">
-          <div className="term-box-title">TRAINING ZONES</div>
-          <div className="term-box-body">
-            <table className="term-table">
-              <thead>
-                <tr><th>ZONE</th><th>HR (BPM)</th><th>EST PACE</th><th>USE</th></tr>
-              </thead>
-              <tbody>
-                {zones.map((z, i) => (
-                  <tr key={i}>
-                    <td className="amber">{z.Zone || z.zone}</td>
-                    <td>{z.HR || z.hr}</td>
-                    <td>{z['Est. Pace'] || z['Est Pace'] || z.pace}</td>
-                    <td className="dim">{z.Use || z.use}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
       {/* Activity log */}
       {activities.length > 0 && (
         <div className="term-box">
@@ -496,7 +472,7 @@ export default function Dashboard() {
               <thead>
                 <tr>
                   <th>DATE</th><th>TYPE</th><th>DIST</th>
-                  <th>AVG PACE</th><th>AVG HR</th><th>MAX HR</th><th>NOTES</th>
+                  <th>AVG PACE</th><th>AVG HR</th><th className="hide-mobile">MAX HR</th><th className="hide-mobile">NOTES</th>
                 </tr>
               </thead>
               <tbody>

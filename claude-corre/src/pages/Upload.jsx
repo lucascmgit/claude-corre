@@ -376,7 +376,7 @@ export default function Upload() {
 
           <div style={{ marginTop: '12px', display: 'flex', gap: '8px', alignItems: 'center' }}>
             <button className="term-btn amber" onClick={analyze} disabled={!file || analyzing}>
-              [ANALYZE + GET PRESCRIPTION]
+              [ANALYZE]
             </button>
             {analyzing && <Spinner />}
             {!analyzing && output && !analyzeError && <span className="status-ok">✓ DONE</span>}
@@ -402,31 +402,11 @@ export default function Upload() {
       {prescription && (
         <div className="term-box">
           <div className="term-box-title">
-            <span>NEXT PRESCRIBED SESSION</span>
-            <span className="status-ok">● NEW PRESCRIPTION</span>
+            <span>PRESCRIPTION SAVED</span>
+            <span className="status-ok">✓</span>
           </div>
-          <div className="term-box-body">
-            <div className="coach-output" style={{ marginBottom: '12px' }}>
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{prescription}</ReactMarkdown>
-            </div>
-            {hasGarminTokens && garminStatus !== 'pushed' && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <button
-                  className="term-btn amber"
-                  onClick={pushToGarmin}
-                  disabled={garminStatus === 'pushing'}
-                >
-                  {garminStatus === 'pushing' ? '[PUSHING...]' : '[→ PUSH TO GARMIN WATCH]'}
-                </button>
-                {garminStatus === 'error' && <span className="red" style={{ fontSize: '13px' }}>✗ Push failed — see error above</span>}
-              </div>
-            )}
-            {!hasGarminTokens && (
-              <div style={{ fontSize: '12px', color: '#444' }}>
-                Add Garmin tokens in <span className="amber">[SETTINGS]</span> to push workouts to your watch.
-              </div>
-            )}
-            {garminStatus === 'pushed' && <div className="status-ok" style={{ fontSize: '13px' }}>✓ Workout on Garmin — sync via Bluetooth.</div>}
+          <div className="term-box-body" style={{ fontSize: '14px' }}>
+            New prescription created. Go to <a href="/" className="amber" style={{ textDecoration: 'none' }}>[DASHBOARD]</a> to view and push to Garmin.
           </div>
         </div>
       )}

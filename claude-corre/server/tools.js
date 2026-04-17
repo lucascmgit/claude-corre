@@ -339,10 +339,41 @@ function handleRecordActivity(db, userId, input) {
     Date.now()
   )
   // Mark linked prescription as completed
-  if (input.prescribed_session_id) {
-    db.prepare("UPDATE prescribed_sessions SET status = 'completed' WHERE id = ? AND user_id = ?").run(input.prescribed_session_id, userId)
+  if (prescId) {
+    db.prepare("UPDATE prescribed_sessions SET status = 'completed' WHERE id = ? AND user_id = ?").run(prescId, userId)
   }
+  // Update weekly summary
+  updateWeeklySummary(db, userId, input.activity_date)
   return { activity_id: id, message: 'Activity recorded successfully.' }
+}
+
+function updateWeeklySummary(db, userId, activityDate) {
+  try {
+    const d = new Date(activityDate)
+    const day = (d.getDay() + 6) % 7
+    const mon = new Date(d); mon.setDate(mon.getDate() - day)
+    const weekStart = mon.toISOString().split('T')[0]
+    const weekEnd = new Date(mon.getTime() + 7 * 86400000).toISOString().split('T')[0]
+
+    const stats = db.prepare(`
+      SELECT COUNT(*) as run_count,
+             COALESCE(SUM(distance_m), 0) as total_distance_m,
+             COALESCE(SUM(duration_s), 0) as total_duration_s,
+             ROUND(AVG(CASE WHEN avg_hr > 0 THEN avg_hr END)) as avg_hr
+      FROM activities WHERE user_id = ? AND activity_date >= ? AND activity_date < ? AND activity_type = 'run'
+    `).get(userId, weekStart, weekEnd)
+
+    const existing = db.prepare('SELECT id FROM weekly_summaries WHERE user_id = ? AND week_start = ?').get(userId, weekStart)
+    if (existing) {
+      db.prepare('UPDATE weekly_summaries SET total_distance_m=?, total_duration_s=?, run_count=?, avg_hr=?, created_at=? WHERE id=?')
+        .run(stats.total_distance_m, stats.total_duration_s, stats.run_count, stats.avg_hr, Date.now(), existing.id)
+    } else {
+      db.prepare('INSERT INTO weekly_summaries (id, user_id, week_start, total_distance_m, total_duration_s, run_count, avg_hr, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+        .run(randomUUID(), userId, weekStart, stats.total_distance_m, stats.total_duration_s, stats.run_count, stats.avg_hr, Date.now())
+    }
+  } catch (e) {
+    console.error('Weekly summary update failed:', e.message)
+  }
 }
 
 function handleWriteWorkoutEvaluation(db, userId, input) {
@@ -368,8 +399,8 @@ function handleWriteWorkoutEvaluation(db, userId, input) {
     (id, activity_id, user_id, standalone_analysis, prescription_comparison, adherence_score,
      performance_rating, medium_term_trends, goal_progress, coach_notes, plan_adjustments, created_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
-    id, userId,
-    activityId,
+    id, activityId,
+    userId,
     input.standalone_analysis,
     input.prescription_comparison || null,
     input.adherence_score || null,

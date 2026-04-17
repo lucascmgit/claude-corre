@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
+import { Link } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useAuth } from '../context/AuthContext.jsx'
@@ -155,12 +156,17 @@ export default function Plan() {
 
   if (!planData) {
     return (
-      <div className="term-box">
-        <div className="term-box-title">TRAINING PLAN</div>
-        <div className="term-box-body">
-          <div className="dim" style={{ fontSize: '13px' }}>
-            No active training plan. Set a <span className="amber">[GOAL]</span> first, then ask the coach to create your plan.
+      <div>
+        <div className="term-box">
+          <div className="term-box-title">TRAINING PLAN</div>
+          <div className="term-box-body">
+            <div style={{ fontSize: '14px', marginBottom: '12px' }}>
+              No active training plan. <Link to="/goals" className="amber">Set a goal</Link> first, then ask the coach to create your plan.
+            </div>
           </div>
+        </div>
+        <div style={{ marginTop: '8px' }}>
+          <Link to="/goals" className="term-btn amber" style={{ textDecoration: 'none' }}>[SET GOAL]</Link>
         </div>
       </div>
     )
@@ -168,8 +174,7 @@ export default function Plan() {
 
   const { plan, phases = [], currentPhase } = planData
   if (!plan) return <div className="dim" style={{ padding: '24px' }}>No plan data available.</div>
-  let planJson = null
-  try { planJson = plan.plan_json ? JSON.parse(plan.plan_json) : null } catch {}
+  const planJson = useMemo(() => { try { return plan.plan_json ? JSON.parse(plan.plan_json) : null } catch { return null } }, [plan.plan_json])
   const adjustments = planJson?.adjustment_history || planJson?.adjustments || []
 
   const totalWeeks = plan.total_weeks || 0

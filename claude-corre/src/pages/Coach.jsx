@@ -6,10 +6,8 @@ import { RenderWithCopyCmd } from '../components/CopyCmd.jsx'
 
 const QUICK_PROMPTS = [
   'Prescribe my next run',
-  'Am I on track for my June 15 goal?',
-  'Explain why Z2 matters for me right now',
-  'What does my HR data tell you about my fitness?',
-  'How should I adjust for running in Rio heat?',
+  'Am I on track for my goal?',
+  'What do my recent runs tell you?',
 ]
 
 function ThinkingIndicator() {
@@ -159,12 +157,8 @@ export default function Coach() {
           <span>COACH TERMINAL</span>
           <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
             {lastLogStatus === 'saved' && (
-              <span className="status-ok" style={{ fontSize: '12px' }}>✓ LOG SAVED</span>
+              <span className="status-ok" style={{ fontSize: '12px' }}>✓ DATA SAVED</span>
             )}
-            {lastLogStatus === 'not-saved' && (
-              <span style={{ fontSize: '12px', color: '#666' }}>◌ LOG NOT UPDATED</span>
-            )}
-            <span className="dim">// claude sonnet 4.6</span>
           </div>
         </div>
         <div className="term-box-body">
