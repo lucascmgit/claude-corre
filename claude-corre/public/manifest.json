@@ -1,0 +1,16 @@
+{
+  "name": "Claude Corre",
+  "short_name": "Corre",
+  "description": "AI Running Coach",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0a0a",
+  "theme_color": "#ffb000",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}
