@@ -49,9 +49,9 @@ export default function Coach() {
       .then(r => r.json())
       .then(d => {
         if (d.messages && d.messages.length > 0) {
-          // Only show messages from the last 3 days
-          const cutoff = Date.now() - 3 * 24 * 60 * 60 * 1000
-          const recent = d.messages.filter(m => !m.ts || m.ts >= cutoff).slice(-20)
+          // Only show messages from the last hour — fresh start each session
+          const cutoff = Date.now() - 60 * 60 * 1000
+          const recent = d.messages.filter(m => m.ts && m.ts >= cutoff).slice(-10)
           if (recent.length > 0) setMessages([WELCOME_MSG, ...recent])
         }
       })

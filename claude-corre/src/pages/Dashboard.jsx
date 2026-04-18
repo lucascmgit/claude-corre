@@ -296,7 +296,7 @@ function LatestEvaluation({ evaluation }) {
         {sections.map(({ key, label }) => evaluation[key] ? (
           <div key={key} style={{ marginBottom: '8px' }}>
             <div className="amber" style={{ fontSize: '11px', marginBottom: '2px' }}>{label}</div>
-            <div className="dim" style={{ lineHeight: '1.5' }}>{evaluation[key]}</div>
+            <div className="dim" style={{ lineHeight: '1.5', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{evaluation[key]}</div>
           </div>
         ) : null)}
       </div>
@@ -460,11 +460,12 @@ export default function Dashboard() {
             <span className="dim">// {activities.length} entries</span>
           </div>
           <div className="term-box-body">
+            <div className="table-scroll">
             <table className="term-table">
               <thead>
                 <tr>
                   <th>DATE</th><th>TYPE</th><th>DIST</th>
-                  <th>AVG PACE</th><th>AVG HR</th><th className="hide-mobile">MAX HR</th><th className="hide-mobile">NOTES</th>
+                  <th>PACE</th><th>HR</th><th className="hide-mobile">MAX</th><th className="hide-mobile">NOTES</th>
                 </tr>
               </thead>
               <tbody>
@@ -478,8 +479,6 @@ export default function Dashboard() {
                 ))}
               </tbody>
             </table>
-            <div style={{ marginTop: '8px', fontSize: '11px' }} className="dim">
-              ▶ click a row to expand details
             </div>
           </div>
         </div>

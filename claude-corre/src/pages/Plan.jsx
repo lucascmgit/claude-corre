@@ -154,7 +154,17 @@ export default function Plan() {
 
   if (loading) return <div className="dim" style={{ padding: '24px' }}>LOADING...</div>
 
-  if (!planData) {
+  // Parse plan JSON — must be before any conditional return (React hooks rule)
+  const plan = planData?.plan || null
+  const phases = planData?.phases || []
+  const currentPhase = planData?.currentPhase || null
+  const planJson = useMemo(() => { try { return plan?.plan_json ? JSON.parse(plan.plan_json) : null } catch { return null } }, [plan?.plan_json])
+  const adjustments = planJson?.adjustment_history || planJson?.adjustments || []
+  const totalWeeks = plan?.total_weeks || 0
+  const startDate = plan?.start_date ? new Date(plan.start_date) : new Date()
+  const weeksElapsed = Math.max(0, Math.floor((Date.now() - startDate.getTime()) / (7 * 86400000)))
+
+  if (!plan) {
     return (
       <div>
         <div className="term-box">
@@ -171,15 +181,6 @@ export default function Plan() {
       </div>
     )
   }
-
-  const { plan, phases = [], currentPhase } = planData
-  if (!plan) return <div className="dim" style={{ padding: '24px' }}>No plan data available.</div>
-  const planJson = useMemo(() => { try { return plan.plan_json ? JSON.parse(plan.plan_json) : null } catch { return null } }, [plan.plan_json])
-  const adjustments = planJson?.adjustment_history || planJson?.adjustments || []
-
-  const totalWeeks = plan.total_weeks || 0
-  const startDate = plan.start_date ? new Date(plan.start_date) : new Date()
-  const weeksElapsed = Math.max(0, Math.floor((Date.now() - startDate.getTime()) / (7 * 86400000)))
 
   return (
     <div>
