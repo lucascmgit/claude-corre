@@ -65,7 +65,7 @@ function AppShell() {
         <span> · </span>
         <NavLink to="/about" style={{ color: '#444' }}>about</NavLink>
         <span> · </span>
-        <span style={{ color: '#333' }}>v2.0</span>
+        <span style={{ color: '#333' }}>v3.0</span>
       </footer>
     </div>
   )
