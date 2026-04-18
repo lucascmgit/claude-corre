@@ -259,7 +259,7 @@ function TrainingLoadGauge({ load }) {
           <span className="dim">Acute (7d): {load.acute_load} · {load.acute_sessions} sessions</span>
           <span className="dim">Chronic (28d avg): {load.chronic_load} · {load.chronic_sessions} sessions</span>
         </div>
-        <div style={{ marginTop: '2px', fontSize: '11px', color: '#444' }}>
+        <div style={{ marginTop: '2px', fontSize: '11px', color: '#999' }}>
           Safe: 0.8-1.3 · Elevated: 1.3-1.5 · High risk: &gt;1.5 · Detraining: &lt;0.8
         </div>
       </div>

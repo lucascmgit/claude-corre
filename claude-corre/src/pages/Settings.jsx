@@ -197,7 +197,7 @@ export default function Settings() {
               <div className="amber" style={{ fontSize: '12px', marginBottom: '6px' }}>STEP 4 — PASTE THE TOKEN BELOW</div>
               <div className="dim" style={{ fontSize: '12px', marginBottom: '6px' }}>
                 The script copies the token to your clipboard automatically. Just paste here (Cmd+V / Ctrl+V).
-                It looks like: <code style={{ color: '#555', fontSize: '11px' }}>{`{"oauth1":{...},"oauth2":{...}}`}</code>
+                It looks like: <code style={{ color: '#999', fontSize: '11px' }}>{`{"oauth1":{...},"oauth2":{...}}`}</code>
               </div>
             </div>
           </div>
@@ -222,13 +222,13 @@ export default function Settings() {
             )}
           </div>
 
-          <div style={{ marginTop: '14px', fontSize: '12px', color: '#444', borderTop: '1px solid #1a1a1a', paddingTop: '10px' }}>
+          <div style={{ marginTop: '14px', fontSize: '12px', color: '#999', borderTop: '1px solid #1a1a1a', paddingTop: '10px' }}>
             <div className="amber" style={{ fontSize: '11px', marginBottom: '4px' }}>TROUBLESHOOTING</div>
-            <div>• <strong style={{ color: '#666' }}>python3 not found:</strong> Install from <span style={{ color: '#888' }}>python.org</span> or via <code style={{ color: '#888' }}>brew install python</code> (Mac)</div>
-            <div>• <strong style={{ color: '#666' }}>playwright error:</strong> Make sure you ran <code style={{ color: '#888' }}>playwright install chromium</code> after pip install</div>
-            <div>• <strong style={{ color: '#666' }}>Browser doesn&apos;t open:</strong> Try running from a regular terminal, not VS Code</div>
-            <div>• <strong style={{ color: '#666' }}>Login times out:</strong> You have 5 minutes. Complete the login including any MFA prompts</div>
-            <div>• <strong style={{ color: '#666' }}>Token not copied:</strong> Look for the JSON blob printed in the terminal and copy it manually</div>
+            <div>• <strong style={{ color: '#aaa' }}>python3 not found:</strong> Install from <span style={{ color: '#888' }}>python.org</span> or via <code style={{ color: '#888' }}>brew install python</code> (Mac)</div>
+            <div>• <strong style={{ color: '#aaa' }}>playwright error:</strong> Make sure you ran <code style={{ color: '#888' }}>playwright install chromium</code> after pip install</div>
+            <div>• <strong style={{ color: '#aaa' }}>Browser doesn&apos;t open:</strong> Try running from a regular terminal, not VS Code</div>
+            <div>• <strong style={{ color: '#aaa' }}>Login times out:</strong> You have 5 minutes. Complete the login including any MFA prompts</div>
+            <div>• <strong style={{ color: '#aaa' }}>Token not copied:</strong> Look for the JSON blob printed in the terminal and copy it manually</div>
           </div>
         </div>
       </div>
@@ -236,7 +236,7 @@ export default function Settings() {
       {/* Security note */}
       <div className="term-box">
         <div className="term-box-title">SECURITY</div>
-        <div className="term-box-body" style={{ fontSize: '13px', color: '#666' }}>
+        <div className="term-box-body" style={{ fontSize: '13px', color: '#aaa' }}>
           <div>• API key and Garmin tokens encrypted at rest (AES-256-GCM), isolated per account.</div>
           <div>• Never sent to the browser — only used server-side.</div>
           <div>• Garmin tokens auto-refresh server-side. Re-run browser_auth.py only when fully expired.</div>

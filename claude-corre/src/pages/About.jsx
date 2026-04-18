@@ -41,7 +41,7 @@ export default function About() {
               workout JSON and pushes it to your watch via the Garmin Connect API.
               Workout appears under Training → Workouts on the watch after Bluetooth sync.
             </p>
-            <div style={{ marginTop: '8px', fontSize: '12px', color: '#555' }}>
+            <div style={{ marginTop: '8px', fontSize: '12px', color: '#999' }}>
               Note: Garmin blocked programmatic SSO logins in March 2026. Authentication uses
               a Playwright browser flow locally. Tokens are valid ~30 days.
             </div>

@@ -138,7 +138,7 @@ function GarminSync({ hasGarminTokens, onAnalysisResult }) {
     return (
       <div className="term-box">
         <div className="term-box-title">SYNC FROM GARMIN CONNECT</div>
-        <div className="term-box-body" style={{ fontSize: '13px', color: '#555' }}>
+        <div className="term-box-body" style={{ fontSize: '13px', color: '#999' }}>
           Add Garmin tokens in <span className="amber">[SETTINGS]</span> to sync activities directly from Garmin Connect.
         </div>
       </div>

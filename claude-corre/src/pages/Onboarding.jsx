@@ -73,7 +73,7 @@ function Step1ApiKey({ onDone }) {
             each person provides their own API key — a secret token that lets this app
             talk to Claude on your behalf. You pay Anthropic directly for usage.
           </div>
-          <div style={{ marginBottom: '16px', fontSize: '12px', color: '#555' }}>
+          <div style={{ marginBottom: '16px', fontSize: '12px', color: '#999' }}>
             Typical cost: $1–5/month of active coaching. Your key is encrypted and
             never visible to anyone else.
           </div>
@@ -123,7 +123,7 @@ function Step1ApiKey({ onDone }) {
               color: '#888',
               letterSpacing: '0.5px',
             }}>
-              sk-ant-api03-<span style={{ color: '#555' }}>XXXXXXXXXX...XXXX</span>-<span style={{ color: '#555' }}>XXXXXXXXXX-XXXXXXXXXXXXXXXXXX-XXXXXXXXXXXXXXXXXXX</span>AA
+              sk-ant-api03-<span style={{ color: '#999' }}>XXXXXXXXXX...XXXX</span>-<span style={{ color: '#999' }}>XXXXXXXXXX-XXXXXXXXXXXXXXXXXX-XXXXXXXXXXXXXXXXXXX</span>AA
             </div>
             <span className="red">⚠ Copy it immediately.</span>{' '}
             <span style={{ color: '#aaa' }}>
@@ -310,7 +310,7 @@ function Step2Profile({ onDone, onBack }) {
               </div>
             ))}
             {loading && (
-              <div style={{ color: '#555', fontStyle: 'italic' }}>COACH is typing...</div>
+              <div style={{ color: '#999', fontStyle: 'italic' }}>COACH is typing...</div>
             )}
             <div ref={bottomRef} />
           </div>
@@ -476,8 +476,8 @@ function Step3Garmin({ onDone, onBack }) {
               </div>
             )}
 
-            <div style={{ marginTop: '14px', fontSize: '12px', color: '#444', borderTop: '1px solid #1a1a1a', paddingTop: '8px' }}>
-              <strong style={{ color: '#555' }}>Not working?</strong> Check that Python 3 is installed, that you ran <code style={{ color: '#666' }}>playwright install chromium</code>,
+            <div style={{ marginTop: '14px', fontSize: '12px', color: '#999', borderTop: '1px solid #1a1a1a', paddingTop: '8px' }}>
+              <strong style={{ color: '#999' }}>Not working?</strong> Check that Python 3 is installed, that you ran <code style={{ color: '#aaa' }}>playwright install chromium</code>,
               and that you completed the Garmin login before the 5-minute timeout. If the clipboard didn&apos;t work, copy the JSON blob printed in the terminal.
             </div>
           </div>
