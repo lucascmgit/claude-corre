@@ -332,7 +332,46 @@ app.get('/api/plan', requireAuth, (req, res) => {
   if (!plan) return res.json(null)
   const phases = db.prepare('SELECT * FROM plan_phases WHERE plan_id = ? ORDER BY phase_order').all(plan.id)
   const currentPhase = phases.find(p => p.status === 'active') || null
-  res.json({ plan, phases, currentPhase })
+
+  // Progress stats
+  const goal = db.prepare("SELECT * FROM goals WHERE user_id = ? AND status = 'active' LIMIT 1").get(req.user.sub)
+  const prescriptions = db.prepare('SELECT id, status, prescribed_date FROM prescribed_sessions WHERE plan_id = ?').all(plan.id)
+  const completed = prescriptions.filter(p => p.status === 'completed').length
+  const pending = prescriptions.filter(p => p.status === 'pending').length
+  const superseded = prescriptions.filter(p => p.status === 'superseded').length
+
+  // Activity stats since plan started
+  const activities = db.prepare(
+    "SELECT COUNT(*) as count, COALESCE(SUM(distance_m), 0) as total_m, ROUND(AVG(avg_hr)) as avg_hr FROM activities WHERE user_id = ? AND activity_date >= ? AND activity_type = 'run'"
+  ).get(req.user.sub, plan.start_date)
+
+  // Latest evaluation adherence
+  const latestEval = db.prepare(
+    'SELECT adherence_score, performance_rating, goal_progress FROM workout_evaluations WHERE user_id = ? ORDER BY created_at DESC LIMIT 1'
+  ).get(req.user.sub)
+
+  const weeksElapsed = Math.max(1, Math.ceil((Date.now() - new Date(plan.start_date).getTime()) / (7 * 86400000)))
+  const daysToGoal = goal?.target_date ? Math.ceil((new Date(goal.target_date).getTime() - Date.now()) / 86400000) : null
+
+  res.json({
+    plan, phases, currentPhase,
+    progress: {
+      weeksElapsed,
+      totalWeeks: plan.total_weeks,
+      prescriptionsCompleted: completed,
+      prescriptionsPending: pending,
+      prescriptionsSuperseded: superseded,
+      runsCompleted: activities.count,
+      totalDistanceKm: Math.round(activities.total_m / 100) / 10,
+      avgRunsPerWeek: Math.round((activities.count / weeksElapsed) * 10) / 10,
+      avgHr: activities.avg_hr,
+      daysToGoal,
+      goalDescription: goal?.description || null,
+      latestAdherence: latestEval?.adherence_score || null,
+      latestRating: latestEval?.performance_rating || null,
+      latestGoalProgress: latestEval?.goal_progress || null,
+    },
+  })
 })
 
 app.get('/api/prescriptions', requireAuth, (req, res) => {

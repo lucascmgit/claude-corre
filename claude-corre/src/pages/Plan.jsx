@@ -182,28 +182,67 @@ export default function Plan() {
     )
   }
 
+  const progress = planData?.progress || {}
+
   return (
     <div>
-      {/* Plan overview */}
+      {/* Progress summary */}
       <div className="term-box">
         <div className="term-box-title">
-          <span>TRAINING PLAN</span>
-          <span className="status-ok">ACTIVE</span>
+          <span>PLAN PROGRESS</span>
+          {progress.latestRating && (
+            <span className={progress.latestRating === 'above_target' ? 'status-ok' : progress.latestRating === 'on_target' ? 'amber' : 'red'}>
+              {progress.latestRating.replace('_', ' ').toUpperCase()}
+            </span>
+          )}
         </div>
-        <div className="term-box-body">
-          <div style={{ fontSize: '15px', marginBottom: '8px' }}>{plan.name}</div>
-          <div style={{ display: 'flex', gap: '20px', fontSize: '13px', marginBottom: '12px' }}>
-            <div><span className="amber">START......</span> {plan.start_date}</div>
-            <div><span className="amber">WEEKS......</span> {weeksElapsed}/{totalWeeks}</div>
-            <div><span className="amber">PHASES.....</span> {phases.length}</div>
-            {currentPhase && <div><span className="amber">CURRENT....</span> {currentPhase.name}</div>}
+        <div className="term-box-body" style={{ fontSize: '14px' }}>
+          {progress.goalDescription && (
+            <div style={{ marginBottom: '10px', fontSize: '15px' }}>
+              <span className="amber">GOAL: </span>{progress.goalDescription}
+              {progress.daysToGoal != null && (
+                <span className="dim"> — {progress.daysToGoal > 0 ? `${progress.daysToGoal} days left` : 'past due'}</span>
+              )}
+            </div>
+          )}
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '8px', marginBottom: '10px' }}>
+            <div><span className="amber">WEEK</span> <span>{progress.weeksElapsed}/{progress.totalWeeks}</span></div>
+            <div><span className="amber">RUNS</span> <span>{progress.runsCompleted} ({progress.avgRunsPerWeek}/wk)</span></div>
+            <div><span className="amber">DISTANCE</span> <span>{progress.totalDistanceKm} km</span></div>
+            <div><span className="amber">AVG HR</span> <span>{progress.avgHr || '—'} bpm</span></div>
+            <div><span className="amber">COMPLETED</span> <span>{progress.prescriptionsCompleted} workouts</span></div>
+            {progress.latestAdherence != null && <div><span className="amber">ADHERENCE</span> <span>{progress.latestAdherence}/100</span></div>}
           </div>
 
+          {progress.latestGoalProgress && (
+            <div style={{ borderTop: '1px solid #222', paddingTop: '8px', fontSize: '13px' }}>
+              <div className="amber" style={{ fontSize: '11px', marginBottom: '2px' }}>COACH ASSESSMENT</div>
+              <div className="dim" style={{ whiteSpace: 'pre-wrap', lineHeight: '1.5' }}>{progress.latestGoalProgress}</div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Plan structure */}
+      <div className="term-box">
+        <div className="term-box-title">
+          <span>{plan.name}</span>
+          <span className="dim">WK {weeksElapsed}/{totalWeeks}</span>
+        </div>
+        <div className="term-box-body">
           <PhaseTimeline phases={phases} currentPhase={currentPhase} />
 
-          {plan.rationale && (
+          {currentPhase && (
             <div style={{ marginTop: '8px', fontSize: '13px' }}>
-              <div className="amber" style={{ fontSize: '11px', marginBottom: '2px' }}>PLAN RATIONALE</div>
+              <span className="amber">CURRENT PHASE: </span>{currentPhase.name}
+              {currentPhase.objective && <span className="dim"> — {currentPhase.objective}</span>}
+            </div>
+          )}
+
+          {plan.rationale && (
+            <div style={{ marginTop: '10px', fontSize: '13px' }}>
+              <div className="amber" style={{ fontSize: '11px', marginBottom: '2px' }}>RATIONALE</div>
               <div className="dim coach-output" style={{ lineHeight: '1.5' }}>
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>{plan.rationale}</ReactMarkdown>
               </div>
