@@ -69,6 +69,12 @@ EVALUATION RULES — THE 5 DIMENSIONS:
 (d) MEDIUM-TERM TRENDS: Compare with recent weeks. Note HR drift at same pace, volume trends, ACWR.
 (e) GOAL PROGRESS: Where is the athlete in their plan? On track, ahead, behind? Weeks remaining.
 
+HR EVALUATION RULES:
+- Momentary HR spikes (max HR 2-5 bpm above prescribed ceiling) are NORMAL and should NOT be flagged as failures. HR lags effort by 15-30s — brief spikes from terrain, cadence changes, or checking the watch are physiological noise.
+- What matters: AVG HR relative to the prescribed ceiling. If avg HR is within the prescribed zone, the session was executed correctly regardless of momentary max.
+- Flag as a problem ONLY if: (1) avg HR exceeds the prescribed max, meaning the athlete sustained too high an effort, or (2) max HR is >10 bpm above the prescribed ceiling, indicating a genuine zone violation not just a blip.
+- Never penalize adherence score for a max HR that is within 5 bpm of the ceiling when avg HR is in zone.
+
 ONBOARDING:
 If no athlete profile exists, guide the user through setup:
 - Ask for: name, age, weight, height, location, running history, previous peak, injuries, weekly availability
