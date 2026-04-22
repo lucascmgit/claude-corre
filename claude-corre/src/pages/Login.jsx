@@ -8,6 +8,7 @@ export default function Login() {
   const [mode, setMode] = useState('login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [inviteCode, setInviteCode] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -21,7 +22,7 @@ export default function Login() {
         await login(email.trim(), password)
         navigate('/')
       } else {
-        await signup(email.trim(), password)
+        await signup(email.trim(), password, inviteCode.trim())
         navigate('/onboard')
       }
     } catch (err) {
@@ -70,6 +71,20 @@ export default function Login() {
                 <div className="dim" style={{ fontSize: '11px', marginTop: '4px' }}>Minimum 8 characters.</div>
               )}
             </div>
+
+            {mode === 'signup' && (
+              <div style={{ marginBottom: '16px' }}>
+                <div className="dim" style={{ fontSize: '11px', marginBottom: '4px' }}>INVITE CODE</div>
+                <input
+                  className="term-input"
+                  type="text"
+                  value={inviteCode}
+                  onChange={e => setInviteCode(e.target.value)}
+                  placeholder="ask the admin"
+                  disabled={loading}
+                />
+              </div>
+            )}
 
             {error && (
               <div className="red" style={{ fontSize: '12px', marginBottom: '12px' }}>

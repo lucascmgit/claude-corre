@@ -1,10 +1,9 @@
 import { useState } from 'react'
 
-const GARMIN_CMD = 'cd ~/projects/personal/run/claude-corre && python3 browser_auth.py'
+const GARMIN_CMD = 'python3 browser_auth.py'
 
 /**
  * Renders a terminal command with a click-to-copy button.
- * Used for Garmin auth instructions across the app.
  */
 export function GarminAuthCmd({ style }) {
   const [copied, setCopied] = useState(false)
@@ -34,7 +33,7 @@ export function GarminAuthCmd({ style }) {
       }}
     >
       {GARMIN_CMD}
-      <span style={{ marginLeft: '8px', fontSize: '11px', color: copied ? 'var(--amber)' : '#444' }}>
+      <span style={{ marginLeft: '8px', fontSize: '11px', color: copied ? 'var(--amber)' : '#999' }}>
         {copied ? 'copied!' : '[click to copy]'}
       </span>
     </span>
@@ -43,22 +42,20 @@ export function GarminAuthCmd({ style }) {
 
 /**
  * Scans text for the garmin auth command pattern and replaces it with a copyable element.
- * Use this to render error messages that may contain the command.
  */
 export function RenderWithCopyCmd({ text }) {
   if (!text) return null
-  const cmdPattern = 'cd ~/projects/personal/run/claude-corre && python3 browser_auth.py'
-  const idx = text.indexOf(cmdPattern)
-  if (idx === -1) return <>{text}</>
-
-  const before = text.slice(0, idx)
-  const after = text.slice(idx + cmdPattern.length)
-
-  return (
-    <>
-      {before}
-      <GarminAuthCmd style={{ margin: '4px 0' }} />
-      {after}
-    </>
-  )
+  // Match both old and new command patterns
+  const patterns = [
+    'python3 browser_auth.py (see Settings for instructions)',
+    'python3 browser_auth.py',
+  ]
+  for (const pat of patterns) {
+    const idx = text.indexOf(pat)
+    if (idx === -1) continue
+    const before = text.slice(0, idx)
+    const after = text.slice(idx + pat.length)
+    return <>{before}<GarminAuthCmd style={{ margin: '4px 0' }} />{after}</>
+  }
+  return <>{text}</>
 }

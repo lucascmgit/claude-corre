@@ -51,11 +51,11 @@ export function AuthProvider({ children }) {
     return session
   }
 
-  async function signup(email, password) {
+  async function signup(email, password, inviteCode) {
     const res = await fetch('/api/auth/signup', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ email, password, inviteCode }),
     })
     if (!res.ok) {
       const err = await res.json().catch(() => ({}))
