@@ -204,6 +204,10 @@ if __name__ == "__main__":
 
     app_json = json.dumps(app_token)
 
+    # Save the app token to a file for easy access
+    app_token_file = token_dir / "app_token.json"
+    app_token_file.write_text(app_json)
+
     print()
     print("=" * 55)
     print("  PASTE THIS IN THE APP: Settings → Garmin Tokens")
@@ -212,10 +216,15 @@ if __name__ == "__main__":
     print(app_json)
     print()
 
-    if to_clipboard(app_json):
+    copied = to_clipboard(app_json)
+    if copied:
         print("Copied to clipboard! Go to the app → Settings → paste.")
     else:
-        print("(Could not copy to clipboard — paste the JSON above manually.)")
+        print("Could not copy to clipboard automatically.")
+
+    print()
+    print(f"Token also saved to: {app_token_file}")
+    print(f"To copy manually:  cat {app_token_file} | pbcopy")
 
     print()
     print(f"Tokens saved to {token_dir}")
