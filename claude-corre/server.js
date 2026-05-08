@@ -828,67 +828,6 @@ app.post('/api/ask-coach', requireAuth, async (req, res) => {
   }
 })
 
-// ── Upload activity (CSV analysis) ────────────────────────────────────────────
-
-app.post('/api/upload-activity', requireAuth, async (req, res) => {
-  const apiKey = getUserApiKey(req.user.sub)
-  if (!apiKey) return res.status(503).json({ error: 'No Anthropic API key configured. Go to [SETTINGS].' })
-
-  const { csv, filename, clientDate } = req.body
-  if (!csv) return res.status(400).json({ error: 'No CSV data' })
-
-  // Stream via SSE to avoid Railway 60s proxy timeout
-  res.setHeader('Content-Type', 'text/event-stream')
-  res.setHeader('Cache-Control', 'no-cache')
-  res.setHeader('X-Accel-Buffering', 'no')
-  function send(obj) { res.write(`data: ${JSON.stringify(obj)}\n\n`) }
-
-  // Parse start timestamp from Garmin CSV header (formats: "Start Time", "Start Time (Local)").
-  // Garmin CSVs put it in the first metadata row or in the laps section.
-  let parsedStart = null
-  const startMatch = csv.match(/Start\s*Time[^\n,]*[,:]\s*([0-9]{4}-[0-9]{2}-[0-9]{2}[T ][0-9]{2}:[0-9]{2}:[0-9]{2}[^\n,]*)/i)
-    || csv.match(/Start\s*Time[^\n,]*[,:]\s*([0-9]{1,2}\/[0-9]{1,2}\/[0-9]{2,4}[^\n,]*)/i)
-  if (startMatch) parsedStart = startMatch[1].trim()
-
-  try {
-    const { toolCalls, finalText } = await runCoachLoop({
-      apiKey,
-      userId: req.user.sub,
-      messages: [{ role: 'user', content: `Analyze this Garmin CSV activity (filename: ${filename}).
-Activity start (parsed from CSV): ${parsedStart || 'NOT FOUND in CSV header — ask the athlete or skip date-specific claims'}.
-If a start time is given above, use its date portion as activity_date and its time portion to reason about morning/afternoon/evening. Do NOT infer date or time from the filename or current clock.
-
-\`\`\`csv
-${csv.slice(0, 15000)}
-\`\`\`` }],
-      isUpload: true,
-      clientDate,
-      onChunk: chunk => send({ chunk }),
-      onToolCall: (name, input) => send({ tool: name }),
-      onThinking: (round, max) => send({ thinking: round }),
-    })
-
-    // Find the prescription that was created (if any)
-    const prescCall = toolCalls.find(tc => tc.name === 'prescribe_session')
-    const prescId = prescCall?.result?.prescription_id
-    let prescription = ''
-    if (prescId) {
-      const row = getDb().prepare('SELECT description, rationale FROM prescribed_sessions WHERE id = ?').get(prescId)
-      if (row) prescription = `## NEXT PRESCRIBED SESSION\n\n${row.description}\n\n**Rationale:** ${row.rationale}`
-    }
-
-    const dataUpdated = toolCalls.some(tc =>
-      ['record_activity', 'write_workout_evaluation', 'prescribe_session'].includes(tc.name)
-    )
-
-    send({ done: true, prescription, logUpdated: dataUpdated })
-    res.end()
-  } catch (e) {
-    send({ error: e.message })
-    res.end()
-  }
-})
-
 // ── Push workout to Garmin ─────────────────────────────────────────────────────
 
 // ── Garmin workout builder ────────────────────────────────────────────────────
@@ -1247,7 +1186,7 @@ app.post('/api/import-garmin', requireAuth, async (req, res) => {
     ])
 
     if (!csvRes.ok) {
-      send({ error: `Could not download activity CSV from Garmin (${csvRes.status}). Try downloading manually and using [UPLOAD RUN] instead.` })
+      send({ error: `Could not download activity from Garmin (${csvRes.status}). Refresh tokens via Settings and retry.` })
       return res.end()
     }
     const csv = await csvRes.text()
