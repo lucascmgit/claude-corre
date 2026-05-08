@@ -95,7 +95,7 @@ function PhaseBar({ phase, currentWeek }) {
   const totalWeeksMatch = phase?.match(/Weeks?\s*\d+-(\d+)/)
   const totalWeeks = totalWeeksMatch ? parseInt(totalWeeksMatch[1]) : 4
   const weekNum = currentWeek?.match(/Week (\d+)/)?.[1] || 1
-  const filled = Math.round((weekNum / totalWeeks) * 30)
+  const filled = Math.min(30, Math.max(0, Math.round((weekNum / totalWeeks) * 30)))
 
   return (
     <div style={{ marginTop: '10px' }}>
