@@ -1233,13 +1233,85 @@ app.post('/api/import-garmin', requireAuth, async (req, res) => {
   function send(obj) { res.write(`data: ${JSON.stringify(obj)}\n\n`) }
 
   try {
-    // Download CSV from Garmin (auto-refresh on 401)
-    const csvRes = await garminApiFetch(req.user.sub, `https://connectapi.garmin.com/download-service/export/csv/activity/${activityId}`, { accept: '*/*' })
+    // Download CSV + rich JSON endpoints in parallel.
+    // CSV gives us the per-second time series; the JSON endpoints give us
+    // labeled laps (WARMUP/ACTIVE/RECOVERY/COOLDOWN), HR time-in-zones,
+    // Garmin's own training-effect score, and the athlete's post-run RPE/feel.
+    const base = `https://connectapi.garmin.com/activity-service/activity/${activityId}`
+    const [csvRes, detailsRes, splitsRes, hrZonesRes, typedSplitsRes] = await Promise.all([
+      garminApiFetch(req.user.sub, `https://connectapi.garmin.com/download-service/export/csv/activity/${activityId}`, { accept: '*/*' }),
+      garminApiFetch(req.user.sub, base).catch(() => null),
+      garminApiFetch(req.user.sub, `${base}/splits`).catch(() => null),
+      garminApiFetch(req.user.sub, `${base}/hrTimeInZones`).catch(() => null),
+      garminApiFetch(req.user.sub, `${base}/typedsplits`).catch(() => null),
+    ])
+
     if (!csvRes.ok) {
       send({ error: `Could not download activity CSV from Garmin (${csvRes.status}). Try downloading manually and using [UPLOAD RUN] instead.` })
       return res.end()
     }
     const csv = await csvRes.text()
+
+    // Parse rich endpoints; failures are non-fatal — coach still has CSV.
+    async function safeJson(r) { try { return r && r.ok ? await r.json() : null } catch { return null } }
+    const [details, splits, hrZones, typedSplits] = await Promise.all([
+      safeJson(detailsRes), safeJson(splitsRes), safeJson(hrZonesRes), safeJson(typedSplitsRes),
+    ])
+
+    // Build a compact metadata block. Only fields that meaningfully shape coaching.
+    const s = details?.summaryDTO || {}
+    const meta = {
+      activityId,
+      startTimeLocal: s.startTimeLocal || activityStartTime || null,
+      timeZone: details?.timeZoneUnitDTO?.timeZone || null,
+      locationName: details?.locationName || null,
+      associatedWorkoutId: details?.metadataDTO?.associatedWorkoutId || null,
+      distance_m: s.distance ?? null,
+      duration_s: s.duration ?? null,
+      movingDuration_s: s.movingDuration ?? null,
+      avgHr: s.averageHR ?? null,
+      maxHr: s.maxHR ?? null,
+      minHr: s.minHR ?? null,
+      avgCadence: s.averageRunCadence ?? null,
+      maxCadence: s.maxRunCadence ?? null,
+      strideLength_cm: s.strideLength ?? null,
+      avgSpeed_mps: s.averageSpeed ?? null,
+      maxSpeed_mps: s.maxSpeed ?? null,
+      elevationGain_m: s.elevationGain ?? null,
+      elevationLoss_m: s.elevationLoss ?? null,
+      trainingEffectAerobic: s.trainingEffect ?? null,
+      trainingEffectAnaerobic: s.anaerobicTrainingEffect ?? null,
+      aerobicTrainingEffectMessage: s.aerobicTrainingEffectMessage ?? null,
+      anaerobicTrainingEffectMessage: s.anaerobicTrainingEffectMessage ?? null,
+      vigorousIntensityMinutes: s.vigorousIntensityMinutes ?? null,
+      moderateIntensityMinutes: s.moderateIntensityMinutes ?? null,
+      directWorkoutRpe: s.directWorkoutRpe ?? null,        // 0–100 scale, athlete-reported on watch
+      directWorkoutFeel: s.directWorkoutFeel ?? null,      // 0–100 scale, athlete-reported on watch
+      calories: s.calories ?? null,
+      labeledLaps: (splits?.lapDTOs || []).map(l => ({
+        lap: l.lapIndex,
+        intensityType: l.intensityType,                     // WARMUP | ACTIVE | RECOVERY | COOLDOWN | INTERVAL | REST
+        wktStepIndex: l.wktStepIndex,                       // links to prescribed workout step
+        distance_m: l.distance,
+        duration_s: l.duration,
+        avgHr: l.averageHR,
+        maxHr: l.maxHR,
+        avgSpeed_mps: l.averageSpeed,
+        avgCadence: l.averageRunCadence,
+        elevationGain_m: l.elevationGain,
+      })),
+      runWalkSplits: (typedSplits?.splits || []).map(t => ({
+        type: t.type,                                       // RWD_RUN | RWD_WALK | RWD_STAND
+        distance_m: t.distance,
+        duration_s: t.duration,
+        avgHr: t.averageHR,
+        maxHr: t.maxHR,
+        avgSpeed_mps: t.averageSpeed,
+      })),
+      hrTimeInZones: Array.isArray(hrZones) ? hrZones.map(z => ({
+        zone: z.zoneNumber, lowBpm: z.zoneLowBoundary, seconds: Math.round(z.secsInZone),
+      })) : null,
+    }
 
     const filename = `${activityName || 'activity'}_${activityId}.csv`
 
@@ -1257,12 +1329,26 @@ app.post('/api/import-garmin', requireAuth, async (req, res) => {
     const { toolCalls, finalText } = await runCoachLoop({
       apiKey,
       userId: req.user.sub,
-      messages: [{ role: 'user', content: `Analyze this Garmin CSV activity (filename: ${filename}).
-Activity start (local time, from Garmin): ${activityStartTime || activityDate || 'unknown'}.
-Use this exact value as the activity_date when calling record_activity (date portion only).
-Use the time-of-day portion when reasoning about morning vs afternoon vs evening sessions.
-Do NOT infer the date or time from the CSV content, filename, or current clock — trust only the value above.
+      messages: [{ role: 'user', content: `Analyze this Garmin activity (filename: ${filename}).
+
+GARMIN_METADATA (authoritative — prefer these values over anything you parse from the CSV):
+\`\`\`json
+${JSON.stringify(meta, null, 2)}
+\`\`\`
+
+Use the metadata as follows:
+- startTimeLocal is the truth for date and time-of-day. Use its date portion as activity_date. Never infer date/time from CSV, filename, or current clock.
+- labeledLaps[] gives you Garmin's own segmentation (WARMUP/ACTIVE/RECOVERY/COOLDOWN, etc.). Use these labels to scope HR analysis — only compare HR within laps of the same intensityType. Never compare HR between WARMUP and ACTIVE, or between ACTIVE and RECOVERY.
+- runWalkSplits[] tells you which segments were run vs walk vs stand. Walk segments naturally have lower HR — never flag this as a problem.
+- hrTimeInZones is the ground truth for session intent. Quote it in standalone analysis (e.g. "21min in Z4 confirms tempo execution").
+- trainingEffectAerobic + aerobicTrainingEffectMessage is Garmin's measured physiological impact (0–5 scale, with classification). Cite it. If it disagrees with the prescription's intent, call that out.
+- directWorkoutRpe (0–100) and directWorkoutFeel (0–100) are athlete-reported on the watch — RPE is perceived effort, feel is subjective rating. Cite them when present; do not invent them when null.
+- associatedWorkoutId, when present, is the Garmin workout the athlete pushed and executed. If isPrescribed is true, you can trust this as the link to the prescription.
+- Cadence, strideLength, elevationGain inform form/terrain context — use only when relevant to a finding.
+
 ${prescriptionContext}
+
+CSV TIME SERIES (per-second; use for fine-grained drift/recovery analysis only — coarse metrics belong to the metadata above):
 \`\`\`csv
 ${csv.slice(0, 15000)}
 \`\`\`` }],

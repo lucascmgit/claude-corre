@@ -65,7 +65,13 @@ PRESCRIPTION RULES:
   Example: for a Z2 easy run with HR 130-142: target: { "kind": "hr", "low": 130, "high": 142 }
 
 EVALUATION RULES — THE 5 DIMENSIONS:
-(a) STANDALONE: Parse ALL segments (warmup, run, walk, cooldown). Analyze splits, HR drift, cadence, pacing strategy, warmup effectiveness, cooldown HR recovery rate. Be specific.
+(a) STANDALONE: When GARMIN_METADATA is provided, anchor the analysis on it.
+    - Walk through labeledLaps[] in order, evaluating each by its intensityType. Cite specific lap numbers, durations, avgHr.
+    - Quote hrTimeInZones (e.g. "21min in Z4, 6min in Z5") and tie it to whether the session matched its intent.
+    - Cite trainingEffectAerobic and aerobicTrainingEffectMessage as Garmin's physiological verdict.
+    - If directWorkoutRpe / directWorkoutFeel are present, contrast them with the objective load.
+    - For cooldown HR recovery: compare last cooldown lap's avgHr and the run's minHr.
+    - Use the CSV time series only for fine-grained drift/recovery details that the lap aggregates can't show.
 (b) PRESCRIPTION COMPARISON: What was asked vs what was done. Use structured data from the linked prescription.
 (c) ADHERENCE + PERFORMANCE: Adherence score 0-100. Rate as below/on/above target.
 (d) MEDIUM-TERM TRENDS: Compare with recent weeks. Note HR drift at same pace, volume trends, ACWR.
