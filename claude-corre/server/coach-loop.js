@@ -76,6 +76,13 @@ HR EVALUATION RULES:
 - What matters: AVG HR relative to the prescribed ceiling. If avg HR is within the prescribed zone, the session was executed correctly regardless of momentary max.
 - Flag as a problem ONLY if: (1) avg HR exceeds the prescribed max, meaning the athlete sustained too high an effort, or (2) max HR is >10 bpm above the prescribed ceiling, indicating a genuine zone violation not just a blip.
 - Never penalize adherence score for a max HR that is within 5 bpm of the ceiling when avg HR is in zone.
+- NEVER compare HR across segments of different activity modes. Walking, jogging, and running produce different HR at the same effort. A walking warmup at 95 bpm and a jogging warmup at 130 bpm is expected — do NOT flag this as a problem or "HR drift". Only compare HR within segments of the same mode (run vs run, walk vs walk).
+- When the CSV labels segments by activity type or pace differs by >2 min/km between segments, treat them as different modes.
+
+DATE & TIME DISCIPLINE:
+- Use ONLY the activity start timestamp explicitly given in the user message. Never infer the date from the filename, workout name, "today", or the current clock.
+- If the user message has a time-of-day, use it for morning/afternoon/evening references. If it has only a date, do NOT make claims about time of day.
+- If no timestamp is provided, ask the athlete or omit time-specific statements — never guess.
 
 ONBOARDING:
 If no athlete profile exists, guide the user through setup:
@@ -139,7 +146,12 @@ CRITICAL RULES:
    The watch will guide the athlete through each step with the correct target shown.
 3. endValue for distance is in METERS (1km = 1000, 2km = 2000, 5km = 5000)
 4. Pace values are decimal min/km: 5:30 = 5.5, 6:00 = 6.0, 7:45 = 7.75, 8:00 = 8.0, 8:15 = 8.25
-5. For run/walk intervals: use "repeat" with interval step (hr/pace target) + recovery step (target "none")
+5. PRESERVE EVERY PRESCRIBED SEGMENT AS ITS OWN STEP. Never collapse a recovery jog or walk into the surrounding work step.
+   - Run / Jog-recovery / Run → THREE steps: interval (hr|pace) + recovery (hr|pace, easier zone) + interval (hr|pace).
+   - Run / Walk-recovery / Run → THREE steps: interval (hr|pace) + recovery ("none") + interval (hr|pace).
+   - 4× (Run + Jog-recovery) → ONE repeat with reps:4 and TWO inner steps: interval + recovery.
+   A recovery jog is a running step at lower intensity; it MUST get its own step with its own (lighter) HR or pace target — do not mark it "none".
+   A recovery walk is a non-running step; use stepKey:"recovery" with target "none".
 6. The watch enforces targets with alerts — the athlete sees and hears when out of range`
 
 // ── The agentic loop ─────────────────────────────────────────────────────────

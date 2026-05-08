@@ -79,6 +79,7 @@ function GarminSync({ hasGarminTokens, onAnalysisResult }) {
           activityId: act.activityId,
           activityName: act.name,
           activityDate: act.date,
+          activityStartTime: act.startTimeLocal,
           isPrescribed,
           clientDate: new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }),
         }),

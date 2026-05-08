@@ -843,11 +843,24 @@ app.post('/api/upload-activity', requireAuth, async (req, res) => {
   res.setHeader('X-Accel-Buffering', 'no')
   function send(obj) { res.write(`data: ${JSON.stringify(obj)}\n\n`) }
 
+  // Parse start timestamp from Garmin CSV header (formats: "Start Time", "Start Time (Local)").
+  // Garmin CSVs put it in the first metadata row or in the laps section.
+  let parsedStart = null
+  const startMatch = csv.match(/Start\s*Time[^\n,]*[,:]\s*([0-9]{4}-[0-9]{2}-[0-9]{2}[T ][0-9]{2}:[0-9]{2}:[0-9]{2}[^\n,]*)/i)
+    || csv.match(/Start\s*Time[^\n,]*[,:]\s*([0-9]{1,2}\/[0-9]{1,2}\/[0-9]{2,4}[^\n,]*)/i)
+  if (startMatch) parsedStart = startMatch[1].trim()
+
   try {
     const { toolCalls, finalText } = await runCoachLoop({
       apiKey,
       userId: req.user.sub,
-      messages: [{ role: 'user', content: `Analyze this Garmin CSV activity (filename: ${filename}):\n\n\`\`\`csv\n${csv.slice(0, 15000)}\n\`\`\`` }],
+      messages: [{ role: 'user', content: `Analyze this Garmin CSV activity (filename: ${filename}).
+Activity start (parsed from CSV): ${parsedStart || 'NOT FOUND in CSV header — ask the athlete or skip date-specific claims'}.
+If a start time is given above, use its date portion as activity_date and its time portion to reason about morning/afternoon/evening. Do NOT infer date or time from the filename or current clock.
+
+\`\`\`csv
+${csv.slice(0, 15000)}
+\`\`\`` }],
       isUpload: true,
       clientDate,
       onChunk: chunk => send({ chunk }),
@@ -1093,7 +1106,11 @@ RULES:
 - Use "none" ONLY for warmup, cooldown, and recovery/walk steps.
 - For a continuous easy run: break it into per-km steps if the prescription specifies different paces per segment.
   Otherwise, one step with distance end condition is fine, but it MUST have an HR or pace target.
-- For run/walk intervals: use "repeat" with run step (interval, with HR or pace target) + walk step (recovery, target "none")
+- PRESERVE EVERY SEGMENT THE PRESCRIPTION DESCRIBES. Never merge a recovery jog or walk into the surrounding run.
+  * Run / Jog-recovery / Run → 3 separate steps: interval (hr|pace) + recovery with its own lighter hr|pace target + interval (hr|pace).
+  * Run / Walk-recovery / Run → 3 separate steps: interval (hr|pace) + recovery with target "none" + interval (hr|pace).
+  * Repeated patterns (e.g. 4× run+jog) → use a single "repeat" with reps:N and the inner Run + Recovery as its TWO inner steps.
+  A recovery JOG is a running step at lower intensity — it MUST keep an hr or pace target, not "none". Only walks/standing rests get "none".
 - For tempo with sets: use "repeat"
 - Default warmup: 300s, cooldown: 300s unless prescription specifies otherwise
 - Respond with JSON only
@@ -1191,6 +1208,7 @@ app.get('/api/garmin-activities', requireAuth, async (req, res) => {
       activityId: a.activityId,
       name: a.activityName || 'Run',
       date: a.startTimeLocal?.split('T')[0] || '—',
+      startTimeLocal: a.startTimeLocal || null,
       distance: a.distance ? `${(a.distance / 1000).toFixed(2)} km` : '—',
       duration: a.duration ? `${Math.floor(a.duration / 60)}:${String(Math.round(a.duration % 60)).padStart(2, '0')}` : '—',
       avgHR: a.averageHR ? Math.round(a.averageHR) : null,
@@ -1205,7 +1223,7 @@ app.post('/api/import-garmin', requireAuth, async (req, res) => {
   const apiKey = getUserApiKey(req.user.sub)
   if (!apiKey) return res.status(503).json({ error: 'No Anthropic API key configured.' })
 
-  const { activityId, activityName, activityDate, isPrescribed, clientDate } = req.body
+  const { activityId, activityName, activityDate, activityStartTime, isPrescribed, clientDate } = req.body
   if (!activityId) return res.status(400).json({ error: 'activityId required' })
 
   // Stream via SSE
@@ -1240,7 +1258,10 @@ app.post('/api/import-garmin', requireAuth, async (req, res) => {
       apiKey,
       userId: req.user.sub,
       messages: [{ role: 'user', content: `Analyze this Garmin CSV activity (filename: ${filename}).
-Activity date from Garmin: ${activityDate || 'unknown'}. Use this as the activity_date when calling record_activity — do NOT infer the date from the CSV content or workout name.
+Activity start (local time, from Garmin): ${activityStartTime || activityDate || 'unknown'}.
+Use this exact value as the activity_date when calling record_activity (date portion only).
+Use the time-of-day portion when reasoning about morning vs afternoon vs evening sessions.
+Do NOT infer the date or time from the CSV content, filename, or current clock — trust only the value above.
 ${prescriptionContext}
 \`\`\`csv
 ${csv.slice(0, 15000)}
