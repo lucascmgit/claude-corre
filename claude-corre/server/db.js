@@ -225,6 +225,18 @@ export function initDb() {
     db.exec('ALTER TABLE user_settings ADD COLUMN garmin_oauth2_saved_at INTEGER')
   }
 
+  // Migrate: fitness model columns on athlete_profiles
+  const profCols = db.pragma('table_info(athlete_profiles)').map(c => c.name)
+  const ensureProfCol = (name, type) => {
+    if (!profCols.includes(name)) db.exec(`ALTER TABLE athlete_profiles ADD COLUMN ${name} ${type}`)
+  }
+  ensureProfCol('vdot', 'REAL')
+  ensureProfCol('critical_speed_mps', 'REAL')
+  ensureProfCol('d_prime_m', 'REAL')
+  ensureProfCol('lthr_bpm', 'INTEGER')
+  ensureProfCol('fitness_calibrated_at', 'INTEGER')
+  ensureProfCol('fitness_source', 'TEXT')
+
   // Migrate: ensure only one pending prescription per user (supersede duplicates)
   db.exec(`
     UPDATE prescribed_sessions SET status = 'superseded'

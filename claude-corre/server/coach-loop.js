@@ -29,22 +29,41 @@ ${RUNNING_SCIENCE_PRINCIPLES}
 ## TOOL USAGE
 
 You have tools to read and write athlete data. Use them to:
-- Read the athlete's profile, goal, plan, recent activities, and training load before giving advice
+- Read the athlete's profile, goal, plan, recent activities, training load, and fitness model
 - Record activities when the athlete reports completing any workout
 - Write 5-part evaluations after recording activities
-- Prescribe sessions based on the training plan and current load
+- Prescribe sessions based on the training plan and current load — preferring canonical templates
 - Create or update training plans when goals change or performance warrants adjustment
-- Update training zones when new calibration data is available
+- Recalibrate fitness model and zones when new race / time-trial data is available
 - Update the athlete profile when the athlete reports changes
 
 WORKFLOW FOR ACTIVITY UPLOAD/ANALYSIS:
-1. Call get_athlete_profile, get_active_goal, get_training_plan, get_current_prescription, get_recent_activities, get_training_load
-2. Analyze the activity data
-3. Call record_activity to save it
-4. Call write_workout_evaluation with all 5 dimensions
-5. Call prescribe_session for the next workout
-6. If performance warrants, call update_training_plan
-7. Present your analysis to the athlete
+1. Call get_athlete_profile, get_active_goal, get_training_plan, get_current_prescription, get_fitness_model, get_recent_activities, get_similar_sessions (same session_type), get_weekly_state, get_training_load.
+2. Analyze the activity data anchored on labeled laps and HR zones. Compare it explicitly to the comparable past sessions.
+3. Call record_activity to save it.
+4. Call write_workout_evaluation with all 5 dimensions, citing specific lap numbers, HR zones, training effect, and prior-session comparisons.
+5. Before prescribe_session: call get_workout_templates and pick one whose purpose matches the athlete's needs in this week of the plan. Call get_workout_template to get the parameterized JSON. Call get_weekly_state to confirm hard/easy alternation, polarized ratio, ACWR projection, and taper status. Adjust if any check fails.
+6. Call prescribe_session with workout_json from the template (after any adjustments).
+7. If a race/time-trial occurred, call recompute_fitness_model. If zones drift from observed HR data, call update_training_zones.
+8. Present your analysis to the athlete.
+
+FITNESS MODEL — how to anchor prescriptions:
+- get_fitness_model returns VDOT (Daniels), Critical Speed, LTHR, and derived training paces (E/M/T/I/R) and HR zones.
+- Use these for ALL pace and HR targets in prescriptions. Do NOT hand-set targets from age formulas when a model exists.
+- If the fitness model is null or stale (>60 days), recommend a benchmark (e.g. 5K time trial) and recompute.
+- Cite VDOT or CS values in rationale when they shape the prescription.
+
+WORKOUT TEMPLATES — how to pick:
+- The catalog (get_workout_templates) covers easy/long/tempo/intervals/MAF/recovery/progression. Each has a stated physiological purpose, prerequisites, and citation.
+- Pick by physiological need, not novelty. If a template fits the week's role (key session vs recovery vs maintenance), use it.
+- Never invent a workout when a template would do. Only deviate when none fit, and explain why in the rationale.
+
+PLAN-LEVEL CHECKS — before every prescription:
+- get_weekly_state returns alternation issues, polarized ratio, ACWR with and without the proposed session, and taper guidance based on days-to-goal.
+- If alternation_issues is non-empty, do NOT prescribe back-to-back hard. Move the hard session.
+- If acwr_with_proposed > 1.5, reduce volume or intensity.
+- If taper_advice is set, follow it exactly — never push new stimuli inside a taper.
+- If polarized hard_pct > 25% over 28d, prescribe easy/long instead of more intensity.
 
 WORKFLOW FOR GENERAL COACHING:
 1. Read relevant context (profile, goal, plan, recent activities) as needed
@@ -160,6 +179,57 @@ CRITICAL RULES:
    A recovery walk is a non-running step; use stepKey:"recovery" with target "none".
 6. The watch enforces targets with alerts — the athlete sees and hears when out of range`
 
+// ── Critique pass ────────────────────────────────────────────────────────────
+//
+// After the coach drafts an evaluation/prescription, a second LLM call ("the
+// reviewer") looks at the writes with fresh eyes and either approves or
+// returns specific corrections. If corrections are returned, the coach gets
+// one chance to revise. Cap = 1 critique cycle to bound cost.
+
+const REVIEWER_SYSTEM = `You are a skeptical second running coach reviewing another coach's draft.
+Your job is to catch errors that hurt credibility — not to rewrite the work.
+
+Look for these specific failure modes:
+1. Date/time errors. Did the coach state a day or time-of-day not supported by the metadata?
+2. Cross-mode HR comparisons. Did the coach compare HR between segments of different intensityType (e.g. WARMUP vs ACTIVE) or between walk and run?
+3. Missing segments in workout_json. Does the prescribed workout structure include EVERY segment the prescription text describes (especially recovery jogs/walks)? A run/jog/run prescription must yield 3 separate steps.
+4. Unsupported claims. Did the coach assert HR drift, fatigue, or improvement without the metric to back it?
+5. Plan-level violations. Hard-day after another hard day? ACWR > 1.5 with the new prescription? New stimuli inside taper window?
+6. Targets without anchor. Were pace/HR targets pulled from generic formulas instead of the athlete's fitness model when one exists?
+7. Sycophancy or vagueness. Empty praise. "Nice job", "great session", "looks good".
+
+Reply format:
+- If everything is fine, reply with the single word: APPROVE
+- Otherwise reply with a numbered list of specific corrections, each tied to a concrete sentence or tool input. Be terse. Do not rewrite the work — point to what must change.`
+
+async function runCritique(client, originalUserText, toolCalls, finalText) {
+  const writes = toolCalls.filter(tc =>
+    ['record_activity', 'write_workout_evaluation', 'prescribe_session'].includes(tc.name)
+  )
+  if (writes.length === 0) return null  // nothing to review
+
+  const ctx = {
+    user_request: originalUserText.slice(0, 3000),
+    coach_writes: writes.map(w => ({ tool: w.name, input: w.input })),
+    coach_final_text: finalText.slice(0, 4000),
+  }
+
+  try {
+    const res = await client.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 1500,
+      system: REVIEWER_SYSTEM,
+      messages: [{ role: 'user', content: 'Review this coach draft:\n\n```json\n' + JSON.stringify(ctx, null, 2) + '\n```' }],
+    })
+    const text = res.content.map(b => b.text || '').join('').trim()
+    if (/^APPROVE\b/i.test(text)) return null
+    return text
+  } catch (e) {
+    console.error('Critique call failed:', e.message)
+    return null  // fail open — don't block on reviewer errors
+  }
+}
+
 // ── The agentic loop ─────────────────────────────────────────────────────────
 
 /**
@@ -183,6 +253,8 @@ export async function runCoachLoop({
   let currentMessages = [...messages]
   const allToolCalls = []
   let finalText = ''
+  let critiqueRan = false
+  const originalUserText = (messages[0]?.content && typeof messages[0].content === 'string') ? messages[0].content : ''
 
   for (let i = 0; i < MAX_ITERATIONS; i++) {
     // Decide: stream only on the final text response, use non-streaming for tool-use turns
@@ -220,8 +292,25 @@ export async function runCoachLoop({
     }
 
     if (toolUseBlocks.length === 0 || stopReason === 'end_turn') {
-      // No tools called — we're done
       finalText = responseText
+      // Run critique once if there are writes to review.
+      if (!critiqueRan) {
+        critiqueRan = true
+        const critique = await runCritique(client, originalUserText, allToolCalls, finalText)
+        if (critique) {
+          if (onChunk) onChunk('\n\n--- reviewer feedback received; revising… ---\n\n')
+          if (onThinking) onThinking(i + 1, MAX_ITERATIONS)
+          // Re-enter the loop with reviewer feedback as a synthetic user turn.
+          currentMessages.push({ role: 'assistant', content: finalMessage.content })
+          currentMessages.push({ role: 'user', content:
+            `REVIEWER FEEDBACK on your previous evaluation/prescription. Address each point.
+You may call update_workout_evaluation to revise the evaluation in place, or supersede the prescription by calling prescribe_session again with corrections. After revising, give the athlete the corrected analysis. If the reviewer is wrong on a point, defend it briefly with the supporting metric.
+
+${critique}`
+          })
+          continue  // reuse loop iteration counter
+        }
+      }
       break
     }
 
