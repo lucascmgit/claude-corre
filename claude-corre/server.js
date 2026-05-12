@@ -832,8 +832,10 @@ app.post('/api/ask-coach', requireAuth, async (req, res) => {
 
 // ── Garmin workout builder ────────────────────────────────────────────────────
 // Supports: easy runs, tempo, intervals/repeats, pace targets, HR targets, cadence targets.
-// HR values use the +100 FIT-protocol offset required by connectapi.garmin.com.
-// Pace targets are stored as speed in m/s (Garmin uses speed.between).
+// HR targets use the "heart.rate.between" key with STRING bpm values (matches
+// the Python uploader at generate_workout.py:48-53). The +100 offset only
+// applies to FIT-file binaries, not this REST endpoint.
+// Pace targets use "pace.zone" with numeric m/s values.
 //
 // Intermediate schema expected from AI extraction:
 // {
@@ -889,10 +891,13 @@ function garminTarget(t) {
     const low = Number(t.low)
     const high = Number(t.high)
     if (!low || !high || isNaN(low) || isNaN(high)) return none
+    // connectapi.garmin.com workout-service requires "heart.rate.between"
+    // (custom range) and STRING values for raw bpm. "heart.rate.zone" expects
+    // a 1-5 zone number, not raw bpm.
     return {
-      targetType: { workoutTargetTypeId: 4, workoutTargetTypeKey: 'heart.rate.zone' },
-      targetValueOne: low,
-      targetValueTwo: high,
+      targetType: { workoutTargetTypeId: 4, workoutTargetTypeKey: 'heart.rate.between' },
+      targetValueOne: String(Math.round(low)),
+      targetValueTwo: String(Math.round(high)),
     }
   }
   if (t.kind === 'pace') {
