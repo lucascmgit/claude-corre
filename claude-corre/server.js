@@ -869,6 +869,17 @@ const END_CONDITION_MAP = {
   lapbutton: { conditionTypeId: 1, conditionTypeKey: 'lap.button' },
 }
 
+// Accepts decimal min/km (5.5) OR "MM:SS" string ("5:30"). Returns decimal or NaN.
+function parsePace(v) {
+  if (v == null) return NaN
+  if (typeof v === 'number') return v
+  const s = String(v).trim()
+  const mm = s.match(/^(\d+):(\d{2})$/)
+  if (mm) return parseInt(mm[1]) + parseInt(mm[2]) / 60
+  const n = Number(s)
+  return isNaN(n) ? NaN : n
+}
+
 // Returns { targetType, targetValueOne, targetValueTwo } as SEPARATE fields.
 // targetValueOne/Two are step-level fields in the Garmin API, NOT nested inside targetType.
 function garminTarget(t) {
@@ -885,8 +896,8 @@ function garminTarget(t) {
     }
   }
   if (t.kind === 'pace') {
-    const low = Number(t.low)
-    const high = Number(t.high)
+    const low = parsePace(t.low)
+    const high = parsePace(t.high)
     if (!low || !high || isNaN(low) || isNaN(high)) return none
     const speedFromFast = parseFloat((1000 / (low * 60)).toFixed(4))
     const speedFromSlow = parseFloat((1000 / (high * 60)).toFixed(4))

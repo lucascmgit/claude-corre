@@ -541,7 +541,9 @@ function handlePrescribeSession(db, userId, input) {
     input.target_hr_high || null,
     input.target_pace_low || null,
     input.target_pace_high || null,
-    input.workout_json || null,
+    typeof input.workout_json === 'object' && input.workout_json !== null
+      ? JSON.stringify(input.workout_json)
+      : (input.workout_json || null),
     input.rationale,
     Date.now()
   )

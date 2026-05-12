@@ -256,9 +256,14 @@ export async function runCoachLoop({
   let critiqueRan = false
   const originalUserText = (messages[0]?.content && typeof messages[0].content === 'string') ? messages[0].content : ''
 
+  // During write flows (upload/import), buffer the model's text. The user sees
+  // only the final accepted answer after the reviewer has approved or the
+  // coach has revised — never the half-baked first draft. For chat (no
+  // writes), stream live as before.
+  const bufferUntilFinal = isUpload
+  const emitChunk = (txt) => { if (!bufferUntilFinal && onChunk) onChunk(txt) }
+
   for (let i = 0; i < MAX_ITERATIONS; i++) {
-    // Decide: stream only on the final text response, use non-streaming for tool-use turns
-    // Actually, we always stream so the user sees thinking progress
     const stream = client.messages.stream({
       model: MODEL,
       max_tokens: MAX_TOKENS,
@@ -275,7 +280,7 @@ export async function runCoachLoop({
       if (event.type === 'content_block_delta') {
         if (event.delta.type === 'text_delta') {
           responseText += event.delta.text
-          if (onChunk) onChunk(event.delta.text)
+          emitChunk(event.delta.text)
         }
       }
       if (event.type === 'message_delta' && event.delta.stop_reason) {
@@ -283,34 +288,30 @@ export async function runCoachLoop({
       }
     }
 
-    // Collect tool use blocks from the final message
     const finalMessage = await stream.finalMessage()
     for (const block of finalMessage.content) {
-      if (block.type === 'tool_use') {
-        toolUseBlocks.push(block)
-      }
+      if (block.type === 'tool_use') toolUseBlocks.push(block)
     }
 
     if (toolUseBlocks.length === 0 || stopReason === 'end_turn') {
       finalText = responseText
-      // Run critique once if there are writes to review.
       if (!critiqueRan) {
         critiqueRan = true
         const critique = await runCritique(client, originalUserText, allToolCalls, finalText)
         if (critique) {
-          if (onChunk) onChunk('\n\n--- reviewer feedback received; revising… ---\n\n')
           if (onThinking) onThinking(i + 1, MAX_ITERATIONS)
-          // Re-enter the loop with reviewer feedback as a synthetic user turn.
           currentMessages.push({ role: 'assistant', content: finalMessage.content })
           currentMessages.push({ role: 'user', content:
-            `REVIEWER FEEDBACK on your previous evaluation/prescription. Address each point.
-You may call update_workout_evaluation to revise the evaluation in place, or supersede the prescription by calling prescribe_session again with corrections. After revising, give the athlete the corrected analysis. If the reviewer is wrong on a point, defend it briefly with the supporting metric.
+            `REVIEWER FEEDBACK on your previous evaluation/prescription. Address each point silently — do NOT mention the review process in your reply to the athlete. Just give the corrected analysis as if it were your first answer.
+You may call update_workout_evaluation to revise the evaluation in place, or supersede the prescription by calling prescribe_session again with corrections. If the reviewer is wrong on a specific point, defend it tersely with the supporting metric. Otherwise apply the corrections.
 
 ${critique}`
           })
-          continue  // reuse loop iteration counter
+          continue
         }
       }
+      // Flush the buffered final text now that it's the accepted answer.
+      if (bufferUntilFinal && onChunk) onChunk(finalText)
       break
     }
 
