@@ -150,7 +150,7 @@ STRUCTURE:
   "main": [<Step or Repeat>]
 }
 
-STEP: { "kind": "step", "stepKey": "interval"|"recovery"|"rest"|"other",
+STEP: { "kind": "step", "stepKey": "warmup"|"interval"|"recovery"|"rest"|"cooldown"|"other",
   "endKind": "distance"|"time", "endValue": <meters for distance, seconds for time>,
   "target": <Target>, "description": "<execution cue>" }
 
@@ -163,21 +163,21 @@ TARGET (one of):
   None:    { "kind": "none" }   — ONLY for warmup/cooldown/recovery walks
 
 CRITICAL RULES:
-1. EVERY running step MUST have target kind "hr" or "pace". Never "none" for running.
-2. Break the workout into SEPARATE STEPS per segment. If km1 has different targets than km2-3, make them separate steps:
+1. TARGETS ARE ONLY ALLOWED ON stepKey:"interval". Garmin's API rejects HR/pace targets on warmup, cooldown, recovery, rest, or other.
+   - For warmup/cooldown/recovery zones, put the zone in the step DESCRIPTION (the watch displays it). target must be { kind: "none" }.
+   - Example warmup: { stepKey: "warmup", endKind: "time", endValue: 600, target: { kind: "none" }, description: "Warmup jog 10 min — keep HR 115-135 bpm" }
+2. EVERY running step that is the actual work (stepKey:"interval") MUST have target kind "hr" or "pace". Never "none" for an interval running step.
+3. Break the workout into SEPARATE STEPS per segment. If km1 has different targets than km2-3, make them separate steps:
    - Step 1: 1000m at pace 8.0-8.5 (km 1)
    - Step 2: 2000m at pace 7.75-8.25 (km 2-3)
    - Step 3: 2000m at pace 7.75-8.25 (km 4-5)
-   The watch will guide the athlete through each step with the correct target shown.
-3. endValue for distance is in METERS (1km = 1000, 2km = 2000, 5km = 5000)
-4. Pace values are decimal min/km: 5:30 = 5.5, 6:00 = 6.0, 7:45 = 7.75, 8:00 = 8.0, 8:15 = 8.25
-5. PRESERVE EVERY PRESCRIBED SEGMENT AS ITS OWN STEP. Never collapse a recovery jog or walk into the surrounding work step.
-   - Run / Jog-recovery / Run → THREE steps: interval (hr|pace) + recovery (hr|pace, easier zone) + interval (hr|pace).
-   - Run / Walk-recovery / Run → THREE steps: interval (hr|pace) + recovery ("none") + interval (hr|pace).
+4. endValue for distance is in METERS (1km = 1000, 2km = 2000, 5km = 5000)
+5. Pace values are decimal min/km: 5:30 = 5.5, 6:00 = 6.0, 7:45 = 7.75, 8:00 = 8.0, 8:15 = 8.25
+6. PRESERVE EVERY PRESCRIBED SEGMENT AS ITS OWN STEP. Never collapse a recovery into the surrounding work.
+   - Run / Jog-recovery / Run → THREE steps: interval (hr|pace) + recovery (target none, zone in description) + interval (hr|pace).
+   - Run / Walk-recovery / Run → THREE steps: interval (hr|pace) + recovery (target none) + interval (hr|pace).
    - 4× (Run + Jog-recovery) → ONE repeat with reps:4 and TWO inner steps: interval + recovery.
-   A recovery jog is a running step at lower intensity; it MUST get its own step with its own (lighter) HR or pace target — do not mark it "none".
-   A recovery walk is a non-running step; use stepKey:"recovery" with target "none".
-6. The watch enforces targets with alerts — the athlete sees and hears when out of range`
+7. Use stepKey:"warmup" for the opening warmup and stepKey:"cooldown" for the closing cooldown. Never "other".`
 
 // ── Critique pass ────────────────────────────────────────────────────────────
 //

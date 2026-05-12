@@ -846,7 +846,7 @@ app.post('/api/ask-coach', requireAuth, async (req, res) => {
 //   main: Array<Step | Repeat>
 // }
 //
-// Step: { kind:"step", stepKey:"interval"|"rest"|"recovery"|"other",
+// Step: { kind:"step", stepKey:"warmup"|"interval"|"recovery"|"rest"|"cooldown"|"other",
 //         endKind:"distance"|"time"|"lapbutton", endValue: number,
 //         target: Target, description: string }
 // Repeat: { kind:"repeat", reps:number, steps: Step[] }
@@ -922,12 +922,21 @@ function garminTarget(t) {
   return none
 }
 
+// Garmin's workout-service only accepts hr/pace/cadence targets on INTERVAL
+// steps (stepTypeId 3). Targets on warmup/cooldown/recovery/other are
+// rejected with HTTP 400. The watch still displays the step description, so
+// zone guidance for those steps belongs in the description text.
+const TARGET_ALLOWED_STEP_KEYS = new Set(['interval'])
+
 function garminStep(s, order) {
-  const target = garminTarget(s.target)
+  const stepKey = s.stepKey || 'interval'
+  const target = TARGET_ALLOWED_STEP_KEYS.has(stepKey)
+    ? garminTarget(s.target)
+    : { targetType: TARGET_NONE }
   return {
     type: 'ExecutableStepDTO',
     stepOrder: order,
-    stepType: STEP_TYPE_MAP[s.stepKey] || STEP_TYPE_MAP.interval,
+    stepType: STEP_TYPE_MAP[stepKey] || STEP_TYPE_MAP.interval,
     endCondition: END_CONDITION_MAP[s.endKind] || END_CONDITION_MAP.time,
     endConditionValue: s.endValue || 0,
     targetType: target.targetType,
@@ -1033,7 +1042,7 @@ OUTPUT SCHEMA:
 Step object:
 {
   "kind": "step",
-  "stepKey": "interval" | "rest" | "recovery" | "other",
+  "stepKey": "warmup" | "interval" | "recovery" | "rest" | "cooldown" | "other",
   "endKind": "distance" | "time" | "lapbutton",
   "endValue": <meters for distance, seconds for time>,
   "target": <Target>,
@@ -1061,11 +1070,12 @@ RULES:
 - Use "none" ONLY for warmup, cooldown, and recovery/walk steps.
 - For a continuous easy run: break it into per-km steps if the prescription specifies different paces per segment.
   Otherwise, one step with distance end condition is fine, but it MUST have an HR or pace target.
-- PRESERVE EVERY SEGMENT THE PRESCRIPTION DESCRIBES. Never merge a recovery jog or walk into the surrounding run.
-  * Run / Jog-recovery / Run → 3 separate steps: interval (hr|pace) + recovery with its own lighter hr|pace target + interval (hr|pace).
-  * Run / Walk-recovery / Run → 3 separate steps: interval (hr|pace) + recovery with target "none" + interval (hr|pace).
+- TARGETS ARE ALLOWED ONLY ON stepKey:"interval". Garmin's API rejects targets on warmup/cooldown/recovery — set target to { kind: "none" } for those and put the zone in the description text (the watch displays it).
+- PRESERVE EVERY SEGMENT THE PRESCRIPTION DESCRIBES. Never merge a recovery into the surrounding run.
+  * Run / Jog-recovery / Run → 3 separate steps: interval (hr|pace) + recovery (target "none", zone in description) + interval (hr|pace).
+  * Run / Walk-recovery / Run → 3 separate steps: interval (hr|pace) + recovery (target "none") + interval (hr|pace).
   * Repeated patterns (e.g. 4× run+jog) → use a single "repeat" with reps:N and the inner Run + Recovery as its TWO inner steps.
-  A recovery JOG is a running step at lower intensity — it MUST keep an hr or pace target, not "none". Only walks/standing rests get "none".
+- Use stepKey:"warmup" for the opening warmup and stepKey:"cooldown" for the closing cooldown. Never "other".
 - For tempo with sets: use "repeat"
 - Default warmup: 300s, cooldown: 300s unless prescription specifies otherwise
 - Respond with JSON only
