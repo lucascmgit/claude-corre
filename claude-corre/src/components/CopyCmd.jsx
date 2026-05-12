@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-const GARMIN_CMD = 'python3 browser_auth.py'
+const GARMIN_CMD = 'cd /Users/lucasmartinelli/projects/personal/run/claude-corre && python3 browser_auth.py'
 
 /**
  * Renders a terminal command with a click-to-copy button.
