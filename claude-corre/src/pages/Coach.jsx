@@ -130,6 +130,13 @@ export default function Coach() {
           if (evt.done) {
             setLastLogStatus(evt.logUpdated ? 'saved' : 'not-saved')
             if (evt.logUpdated) window.dispatchEvent(new CustomEvent('log-updated'))
+            // Clear any lingering "*COACH THINKING (round N)...*" placeholder.
+            // If no text streamed, surface a clear empty-response marker
+            // instead of leaving the thinking indicator forever.
+            setMessages(prev => [...prev.slice(0, -1), {
+              role: 'assistant',
+              content: rawText || '[no response — coach finished without output]',
+            }])
           }
         }
       }

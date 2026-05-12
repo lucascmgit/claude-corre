@@ -4,8 +4,8 @@ import { RUNNING_SCIENCE_PRINCIPLES } from './science.js'
 import { getDb } from './db.js'
 
 const MODEL = 'claude-sonnet-4-6'
-const MAX_TOKENS = 8192
-const MAX_ITERATIONS = 8
+const MAX_TOKENS = 16384
+const MAX_ITERATIONS = 12
 
 // ── System prompt builder ────────────────────────────────────────────────────
 
@@ -293,14 +293,43 @@ export async function runCoachLoop({
       if (block.type === 'tool_use') toolUseBlocks.push(block)
     }
 
-    if (toolUseBlocks.length === 0 || stopReason === 'end_turn') {
+    // Branch explicitly on stop_reason. Pre-fix bug: the loop used
+    // `tools.length===0 || stop==='end_turn'` so any other terminal reason
+    // (max_tokens, refusal, pause_turn) fell into the "done" branch with
+    // empty finalText, leaving the UI stuck on the last COACH THINKING line.
+    const hasTools = toolUseBlocks.length > 0
+    const isFinal = stopReason === 'end_turn' && !hasTools
+    const isAbnormalStop = stopReason && stopReason !== 'end_turn'
+      && stopReason !== 'tool_use' && !hasTools
+
+    if (isAbnormalStop) {
+      const msg = stopReason === 'max_tokens'
+        ? `\n\n[COACH ERROR: response exceeded max tokens on round ${i + 1}. Ask a more specific question or split into steps.]`
+        : `\n\n[COACH ERROR: stop_reason=${stopReason} on round ${i + 1}.]`
+      finalText = responseText + msg
+      if (bufferUntilFinal && onChunk) onChunk(finalText)
+      else if (onChunk) onChunk(msg)
+      break
+    }
+
+    if (isFinal) {
       finalText = responseText
-      if (!critiqueRan) {
+      // Gate critique: only run when the coach actually wrote evaluation
+      // or prescription data. Read-only chat and pure record_activity don't
+      // need a reviewer round — that was burning iterations and pushing
+      // long flows past the MAX_ITERATIONS cap.
+      const hadReviewableWrites = allToolCalls.some(tc =>
+        tc.name === 'prescribe_session' || tc.name === 'write_workout_evaluation'
+      )
+      if (!critiqueRan && hadReviewableWrites) {
         critiqueRan = true
         const critique = await runCritique(client, originalUserText, allToolCalls, finalText)
         if (critique) {
           if (onThinking) onThinking(i + 1, MAX_ITERATIONS)
-          currentMessages.push({ role: 'assistant', content: finalMessage.content })
+          // Strip any tool_use blocks before re-pushing. end_turn shouldn't
+          // carry them, but the API rejects orphan tool_use on the next call.
+          const safeContent = finalMessage.content.filter(b => b.type !== 'tool_use')
+          currentMessages.push({ role: 'assistant', content: safeContent })
           currentMessages.push({ role: 'user', content:
             `REVIEWER FEEDBACK on your previous evaluation/prescription. Address each point silently — do NOT mention the review process in your reply to the athlete. Just give the corrected analysis as if it were your first answer.
 You may call update_workout_evaluation to revise the evaluation in place, or supersede the prescription by calling prescribe_session again with corrections. If the reviewer is wrong on a specific point, defend it tersely with the supporting metric. Otherwise apply the corrections.
@@ -310,7 +339,13 @@ ${critique}`
           continue
         }
       }
-      // Flush the buffered final text now that it's the accepted answer.
+      if (bufferUntilFinal && onChunk) onChunk(finalText)
+      break
+    }
+
+    if (!hasTools) {
+      // No tools and no recognized terminal reason — bail rather than spin.
+      finalText = responseText
       if (bufferUntilFinal && onChunk) onChunk(finalText)
       break
     }
@@ -341,6 +376,14 @@ ${critique}`
 
     // Signal that the coach is thinking before the next round
     if (onThinking) onThinking(i + 1, MAX_ITERATIONS)
+  }
+
+  // Loop exhausted without end_turn. Pre-fix this returned empty finalText
+  // silently and the UI got stuck on the last COACH THINKING indicator.
+  if (!finalText) {
+    const msg = `[COACH ERROR: tool loop reached ${MAX_ITERATIONS} rounds without finishing. Last tool calls: ${allToolCalls.slice(-3).map(t => t.name).join(', ') || 'none'}.]`
+    finalText = msg
+    if (onChunk) onChunk(msg)
   }
 
   return { toolCalls: allToolCalls, finalText }

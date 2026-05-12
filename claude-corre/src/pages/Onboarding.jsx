@@ -259,9 +259,21 @@ function Step2Profile({ onDone, onBack }) {
               return [...prev.slice(0, -1), { ...last, content: last.content + evt.chunk }]
             })
           }
-          if (evt.done && evt.logUpdated) {
-            setProfileSaved(true)
-            window.dispatchEvent(new CustomEvent('log-updated'))
+          if (evt.done) {
+            if (evt.logUpdated) {
+              setProfileSaved(true)
+              window.dispatchEvent(new CustomEvent('log-updated'))
+            }
+            // Strip any trailing "*COACH THINKING (round N)...*" lines that
+            // had no follow-up text. Without this they linger forever when
+            // the loop aborts silently.
+            setMessages(prev => {
+              const last = prev[prev.length - 1]
+              if (!last || last.role !== 'assistant') return prev
+              let cleaned = last.content.replace(/\n*\*COACH THINKING \(round \d+\)\.\.\.\*\n*$/g, '')
+              if (!cleaned.trim()) cleaned = '[no response — coach finished without output]'
+              return [...prev.slice(0, -1), { ...last, content: cleaned }]
+            })
           }
         }
       }

@@ -827,6 +827,23 @@ function handleGetWorkoutTemplate(db, userId, input) {
     MAF_high: fm?.lthr_bpm ? Math.round(fm.lthr_bpm * 0.82) : null,
   }
   const filled = templateBy(input.key, values)
+
+  // Find required placeholders this template actually uses, and check whether
+  // they all resolved. If anything is missing, refuse — emitting a structure
+  // with null targets ({kind:"hr", low:null, high:null}) propagates straight
+  // to prescribe_session and then breaks the Garmin push.
+  const tmplJson = JSON.stringify(tmpl.structure)
+  const required = Array.from(new Set([...tmplJson.matchAll(/"\{\{(\w+)\}\}"/g)].map(m => m[1])))
+  const missing = required.filter(k => values[k] == null)
+  if (missing.length > 0) {
+    return {
+      error: 'fitness_model_incomplete',
+      message: `Cannot parameterize "${tmpl.name}" — missing ${missing.join(', ')}. Run recompute_fitness_model with a recent race / time-trial (and provide an LTHR estimate from a sustained tempo lap) before prescribing this template.`,
+      missing,
+      template_key: input.key,
+    }
+  }
+
   return {
     template: filled,
     fitness_inputs: values,

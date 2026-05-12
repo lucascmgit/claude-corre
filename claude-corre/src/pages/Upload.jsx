@@ -107,6 +107,11 @@ function GarminSync({ hasGarminTokens, onAnalysisResult }) {
             setGarminStatus('saved')
             window.dispatchEvent(new CustomEvent('log-updated'))
           }
+          // If we never received a coach text chunk (silent abort), make that
+          // visible instead of leaving the user staring at "COACH THINKING".
+          if (!text) {
+            setOutput(prev => prev + '\n\n[no coach output — analysis ended without a response]')
+          }
         },
         onError: msg => { throw new Error(msg) },
       })
