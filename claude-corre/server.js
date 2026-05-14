@@ -906,10 +906,12 @@ function garminTarget(t) {
     if (!low || !high || isNaN(low) || isNaN(high)) return none
     const speedFromFast = parseFloat((1000 / (low * 60)).toFixed(4))
     const speedFromSlow = parseFloat((1000 / (high * 60)).toFixed(4))
+    // Mirror the HR-target fix (commit 232b28c): Garmin's workout-service
+    // wants STRING values for raw m/s on pace.zone, not numerics.
     return {
       targetType: { workoutTargetTypeId: 6, workoutTargetTypeKey: 'pace.zone' },
-      targetValueOne: Math.min(speedFromFast, speedFromSlow),
-      targetValueTwo: Math.max(speedFromFast, speedFromSlow),
+      targetValueOne: String(Math.min(speedFromFast, speedFromSlow)),
+      targetValueTwo: String(Math.max(speedFromFast, speedFromSlow)),
     }
   }
   if (t.kind === 'cadence') {
@@ -1148,6 +1150,8 @@ app.post('/api/push-workout', requireAuth, async (req, res) => {
 
     if (!garminRes.ok) {
       const body = await garminRes.text()
+      console.error(`Garmin push failed ${garminRes.status}:`, body)
+      console.error('Garmin response headers:', JSON.stringify(Object.fromEntries(garminRes.headers.entries())))
       if (garminRes.status === 401) return res.status(401).json({ error: 'Garmin token expired. Run: python3 browser_auth.py (see Settings for instructions) and paste tokens in Settings.' })
       return res.status(502).json({ error: `Garmin API error ${garminRes.status}: ${body}` })
     }
